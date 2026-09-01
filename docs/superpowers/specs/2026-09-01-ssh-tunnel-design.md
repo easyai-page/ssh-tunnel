@@ -56,19 +56,26 @@
 
 每个服务器对应一个后台 actor（tokio task + mpsc channel）。actor 接收指令（加隧道 / 删隧道 / 断开 / 重连），内部维护 russh session 与各隧道的 listener/forward 句柄。状态变化通过 Tauri event 广播给前端，并触发托盘菜单与图标重建。
 
-### 3.1 后端模块（Rust，src-tauri/src/ 下）
+### 3.1 后端模块
 
-- `config.rs` — 配置的加载、保存、迁移。配置文件为 JSON，敏感字段只存钥匙串引用 key
-- `secrets.rs` — keyring 封装。key 命名规范：`ssh-tunnel:<serverId>:password`、`ssh-tunnel:<serverId>:key`、`ssh-tunnel:<serverId>:key-passphrase`
-- `ssh/mod.rs` — `SshManager`：持有所有 `ServerActor` 的句柄，路由指令；定义对外事件类型
-- `ssh/actor.rs` — `ServerActor`：连接状态机（Disconnected → Connecting → Connected → Reconnecting → Error），自动重连逻辑
-- `ssh/client.rs` — russh client 实现：认证（密码 / 密钥文件 / 密钥字符串 + passphrase）、host key 校验
-- `forward/local.rs` — 本地转发：起 TcpListener，accept 后开 direct-tcpip channel 桥接
-- `forward/remote.rs` — 远程转发：请求 tcpip-forward，收到 forwarded-tcpip 后桥接到本地目标
-- `forward/socks.rs` — 动态转发：本地起 SOCKS5 server，目标连接走 direct-tcpip
-- `tray.rs` — 托盘图标三态与右键菜单构建；菜单事件分发
-- `commands.rs` — 全部 Tauri commands（见 3.3）
-- `error.rs` — 统一错误类型，thiserror 定义，错误消息面向用户可读
+仓库为 Cargo workspace，拆两个 crate：
+
+- **`core/`（crate `ssh-tunnel-core`）**：纯 Rust 核心，零 GUI 依赖，可在无显示环境跑全部测试
+  - `model.rs` — Server / Forward / Settings 等数据模型（serde）
+  - `config.rs` — 配置的加载、保存。配置文件为 JSON，敏感字段只存钥匙串引用 key
+  - `secrets.rs` — 钥匙串抽象。key 命名规范：`ssh-tunnel:<serverId>:password`、`ssh-tunnel:<serverId>:key`、`ssh-tunnel:<serverId>:key-passphrase`
+  - `known_hosts.rs` — host key 记录与变更检测
+  - `ssh/client.rs` — russh client 封装：认证（密码 / 密钥文件 / 密钥字符串 + passphrase）、host key 校验
+  - `ssh/actor.rs` — `ServerActor`：每服务器一个 tokio actor，连接状态机（Disconnected → Connecting → Connected → Reconnecting → Error），自动重连
+  - `ssh/manager.rs` — `SshManager`：持有所有 actor 句柄，路由指令；事件经 `tokio::sync::broadcast` 外发
+  - `forward/local.rs` — 本地转发：起 TcpListener，accept 后开 direct-tcpip channel 桥接
+  - `forward/remote.rs` — 远程转发：请求 tcpip-forward，收到 forwarded-tcpip 后桥接到本地目标
+  - `forward/socks.rs` + `socks5.rs` — 动态转发：本地 SOCKS5 server，目标连接走 direct-tcpip
+  - `error.rs` — 统一错误类型，thiserror 定义，错误消息面向用户可读
+- **`src-tauri/`（crate `ssh-tunnel-app`）**：Tauri 壳，依赖 core
+  - `commands.rs` — 全部 Tauri commands（见 3.3）
+  - `tray.rs` — 托盘图标三态与右键菜单构建；菜单事件分发
+  - `logging.rs` — 日志初始化（tracing + 滚动文件 + 事件转发前端）
 
 ### 3.2 前端结构（src/）
 

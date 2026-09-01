@@ -10,14 +10,18 @@ src/                  # Vue 前端
   views/              # 页面级组件（MainView、SettingsView）
   components/         # 可复用组件（对话框、日志面板）
   stores/             # Pinia store，按领域分文件
-src-tauri/src/        # Rust 后端
+core/src/             # ssh-tunnel-core：纯 Rust 核心，零 GUI 依赖
   ssh/                # SSH 连接 actor 与 russh client
   forward/            # -L / -R / -D 三种转发实现
+  model.rs            # 数据模型
   config.rs           # 配置读写（不含敏感值）
-  secrets.rs          # 钥匙串封装
-  tray.rs             # 托盘
-  commands.rs         # 全部 Tauri commands
+  secrets.rs          # 钥匙串抽象（trait + keyring 实现 + 内存实现）
+  known_hosts.rs      # host key 记录
   error.rs            # 统一错误类型
+src-tauri/src/        # ssh-tunnel-app：Tauri 壳，依赖 core
+  commands.rs         # 全部 Tauri commands
+  tray.rs             # 托盘
+  logging.rs          # 日志
 docs/superpowers/     # spec 与实现计划
 ```
 
@@ -33,9 +37,12 @@ docs/superpowers/     # spec 与实现计划
 ```bash
 pnpm install          # 装前端依赖
 pnpm tauri dev        # 开发模式
-cd src-tauri && cargo test   # 后端测试
+cargo test -p ssh-tunnel-core   # 后端核心测试（无 GUI 依赖，可无头运行）
 pnpm test             # 前端测试（Vitest）
+pnpm type-check       # vue-tsc
 ```
+
+Tauri 壳（src-tauri）编译需要系统依赖：`sudo apt install libwebkit2gtk-4.1-dev libappindicator3-dev`。
 
 ## 部署
 
