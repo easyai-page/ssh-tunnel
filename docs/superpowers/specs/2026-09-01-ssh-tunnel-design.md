@@ -144,6 +144,13 @@ struct Forward {
 enum ForwardKind { Local, Remote, Dynamic }
 ```
 
+**bind/target 语义约定**（避免实现时歧义）：
+- Local：`bind_addr:bind_port` 为本地监听，`target_*` 为远程目标（经 SSH 服务器访问）
+- Remote：`bind_addr:bind_port` 为远程（SSH 服务器侧）监听，`target_*` 为本地目标
+- Dynamic：`bind_*` 为本地 SOCKS5 监听，无 target
+
+**连接与隧道的联动规则**：启动一条隧道时若其服务器未连接，自动触发连接，连接成功后隧道继续启动；停止服务器上最后一条 running 隧道**不**自动断开连接（连接保持，由用户显式断开）；`auto_start` 隧道在应用启动时开启，同样遵循上述联动。
+
 ### 3.5 托盘
 
 - **图标三态**：灰（无活动隧道）/ 绿（活动隧道全部正常）/ 红（任一隧道或连接出错）
