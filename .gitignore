@@ -1,4 +1,6 @@
 node_modules/
 dist/
+# workspace 根 target（cargo workspace 共享构建目录）
+/target/
 src-tauri/target/
 *.log
