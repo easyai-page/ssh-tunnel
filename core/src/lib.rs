@@ -8,6 +8,5 @@ pub mod socks5;
 pub mod ssh;
 pub mod forward;
 
-// error.rs 由后续任务实现，届时恢复此行
-// pub use error::CoreError;
+pub use error::CoreError;
 pub use model::*;
