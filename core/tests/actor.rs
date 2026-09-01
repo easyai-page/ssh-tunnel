@@ -163,3 +163,61 @@ async fn no_reconnect_when_disabled() {
     assert!(!saw_connected);
     actor.send(ActorCommand::Shutdown).unwrap();
 }
+
+#[tokio::test]
+async fn start_forward_during_reconnecting_connects_once() {
+    let echo = start_tcp_echo().await;
+    let ssh = start_ssh_server(TestServerOpts { password: Some(TEST_PASSWORD), accept_keys: vec![] }).await;
+    let addr = ssh.addr;
+    let secrets = Arc::new(MemorySecretStore::new());
+    secrets.set("s1", SecretKind::Password, TEST_PASSWORD).unwrap();
+    let (events, mut rx) = broadcast::channel(64);
+    let kh = Arc::new(Mutex::new(KnownHosts::new(tempfile::tempdir().unwrap().path().join("kh"))));
+    let actor = spawn_actor(test_server(addr), secrets, kh, decider(), true, events);
+
+    actor.send(ActorCommand::Connect).unwrap();
+    wait_server_status(&mut rx, ServerStatus::Connected).await;
+
+    // 杀掉服务器 → Reconnecting,重试排程在 1s 后
+    ssh.shutdown.shutdown("boom".into());
+    wait_server_status(&mut rx, ServerStatus::Reconnecting).await;
+
+    // 抢在重试定时器触发前:同端口重启服务器,发 StartForward 走隐式连接
+    let ssh2 = start_ssh_server_on(addr, TestServerOpts { password: Some(TEST_PASSWORD), accept_keys: vec![] }).await;
+    let listener_port = {
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let p = l.local_addr().unwrap().port();
+        drop(l);
+        p
+    };
+    let fwd = Forward {
+        id: "f1".into(), server_id: "s1".into(), name: "mysql".into(),
+        kind: ForwardKind::Local, bind_addr: "127.0.0.1".into(), bind_port: listener_port,
+        target_host: Some(echo.ip().to_string()), target_port: Some(echo.port()),
+        auto_start: false,
+    };
+    actor.send(ActorCommand::StartForward(fwd)).unwrap();
+    wait_server_status(&mut rx, ServerStatus::Connected).await;
+    wait_forward_status(&mut rx, ForwardStatus::Running).await;
+
+    // 隐式连接成功必须取消已排程的重试:2.5s 窗口(覆盖原 1s 重试点)内
+    // 不得再出现 Connecting/Connected,否则说明旧定时器二次连接、替换了健康连接
+    let mut second_connect = false;
+    let deadline = std::time::Instant::now() + Duration::from_millis(2500);
+    while let Ok(Ok(ev)) = tokio::time::timeout(deadline - std::time::Instant::now(), rx.recv()).await.map_err(|_| ()).map(|r| r) {
+        if let TunnelEvent::ServerStatus { status: ServerStatus::Connecting | ServerStatus::Connected, .. } = ev {
+            second_connect = true;
+        }
+    }
+    assert!(!second_connect, "Reconnecting 期间 StartForward 隐式连上后出现了二次连接事件");
+
+    // 唯一的那条连接上,转发功能正常
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let mut client = tokio::net::TcpStream::connect(("127.0.0.1", listener_port)).await.unwrap();
+    client.write_all(b"once").await.unwrap();
+    let mut buf = vec![0u8; 4];
+    client.read_exact(&mut buf).await.unwrap();
+    assert_eq!(&buf, b"once");
+    actor.send(ActorCommand::Shutdown).unwrap();
+    ssh2.shutdown.shutdown("done".into());
+}

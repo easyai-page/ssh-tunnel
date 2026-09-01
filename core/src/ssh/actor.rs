@@ -55,6 +55,11 @@ struct Actor {
     forwards: HashMap<String, (Forward, ActiveForward)>,
     /// 手动断开后置位,抑制自动重连
     manual_disconnect: bool,
+    /// 下一次重连时刻;None 表示无排程。连接成功必须清空,
+    /// 否则旧定时器触发会二次连接、替换掉健康连接
+    retry_at: Option<tokio::time::Instant>,
+    /// 连续重连失败次数(退避指数)
+    attempt: u32,
 }
 
 const BACKOFF_INIT: Duration = Duration::from_secs(1);
@@ -73,6 +78,7 @@ pub fn spawn_actor(
     let actor = Actor {
         server, secrets, known_hosts, decider, auto_reconnect, events, rx,
         open_tx, open_rx, conn: None, forwards: HashMap::new(), manual_disconnect: false,
+        retry_at: None, attempt: 0,
     };
     tokio::spawn(actor.run());
     ActorHandle { tx }
@@ -94,8 +100,6 @@ impl Actor {
     }
 
     async fn run(mut self) {
-        let mut retry_at: Option<tokio::time::Instant> = None;
-        let mut attempt: u32 = 0;
         loop {
             tokio::select! {
                 cmd = self.rx.recv() => {
@@ -104,22 +108,20 @@ impl Actor {
                         ActorCommand::Shutdown => break,
                         ActorCommand::Connect => {
                             self.manual_disconnect = false;
+                            // 成功路径的 attempt/retry_at 复位由 do_connect 统一完成
                             if self.conn.is_none() {
-                                match self.do_connect().await {
-                                    Ok(()) => { attempt = 0; retry_at = None; }
-                                    Err(e) => {
-                                        // do_connect 已 emit Error;auto_reconnect 时再转入 Reconnecting
-                                        if self.auto_reconnect && !self.manual_disconnect {
-                                            retry_at = Some(Self::next_retry(&mut attempt));
-                                            self.emit_server(ServerStatus::Reconnecting, Some(e.to_string()));
-                                        }
+                                if let Err(e) = self.do_connect().await {
+                                    // do_connect 已 emit Error;auto_reconnect 时再转入 Reconnecting
+                                    if self.auto_reconnect && !self.manual_disconnect {
+                                        self.retry_at = Some(self.next_retry());
+                                        self.emit_server(ServerStatus::Reconnecting, Some(e.to_string()));
                                     }
                                 }
                             }
                         }
                         ActorCommand::Disconnect => {
                             self.manual_disconnect = true;
-                            retry_at = None;
+                            self.retry_at = None;
                             self.teardown_conn().await;
                             self.emit_server(ServerStatus::Disconnected, None);
                         }
@@ -129,7 +131,7 @@ impl Actor {
                             self.auto_reconnect = v;
                             // 关闭时取消已排程的重试,否则定时器仍会触发重连
                             if !v {
-                                retry_at = None;
+                                self.retry_at = None;
                             }
                         }
                     }
@@ -156,25 +158,28 @@ impl Actor {
                     self.teardown_conn().await;
                     if self.auto_reconnect && !self.manual_disconnect {
                         self.emit_server(ServerStatus::Reconnecting, Some(reason));
-                        retry_at = Some(Self::next_retry(&mut attempt));
+                        self.retry_at = Some(self.next_retry());
                     } else {
                         self.emit_server(ServerStatus::Disconnected, Some(reason));
                     }
                 }
                 // 重连定时器:无重连计划时永久 pending
                 () = async {
-                    match retry_at {
+                    match self.retry_at {
                         Some(t) => tokio::time::sleep_until(t).await,
                         None => std::future::pending().await,
                     }
                 } => {
-                    retry_at = None;
-                    match self.do_connect().await {
-                        Ok(()) => attempt = 0,
-                        Err(e) => {
-                            self.emit_server(ServerStatus::Reconnecting, Some(e.to_string()));
-                            retry_at = Some(Self::next_retry(&mut attempt));
-                        }
+                    self.retry_at = None;
+                    // 守卫:已有健康连接(如 Reconnecting 期间 StartForward 隐式连上),
+                    // 直接跳过——不得二次连接替换它
+                    if self.conn.is_some() {
+                        continue;
+                    }
+                    // 成功路径的 attempt/retry_at 复位由 do_connect 统一完成
+                    if let Err(e) = self.do_connect().await {
+                        self.emit_server(ServerStatus::Reconnecting, Some(e.to_string()));
+                        self.retry_at = Some(self.next_retry());
                     }
                 }
             }
@@ -192,9 +197,9 @@ impl Actor {
     }
 
     /// 指数退避:1s/2s/4s/8s/16s/32s→封顶 30s
-    fn next_retry(attempt: &mut u32) -> tokio::time::Instant {
-        let delay = BACKOFF_INIT * 2u32.saturating_pow((*attempt).min(5));
-        *attempt += 1;
+    fn next_retry(&mut self) -> tokio::time::Instant {
+        let delay = BACKOFF_INIT * 2u32.saturating_pow(self.attempt.min(5));
+        self.attempt += 1;
         tokio::time::Instant::now() + delay.min(BACKOFF_MAX)
     }
 
@@ -204,6 +209,11 @@ impl Actor {
         match conn {
             Ok(conn) => {
                 self.conn = Some(conn);
+                // 连接成功统一复位退避并取消已排程的重连定时器——Connect 命令、
+                // 重试定时器、StartForward 隐式连接三条路径共享此不变量,
+                // 否则 Reconnecting 期间隐式连上后旧定时器仍会触发二次连接
+                self.attempt = 0;
+                self.retry_at = None;
                 self.emit_server(ServerStatus::Connected, None);
                 // 重连后恢复远程转发(local/socks 的 listener 一直活着,通道按需开)
                 self.restore_remote_forwards().await;
@@ -253,6 +263,8 @@ impl Actor {
                 self.emit_forward(&forward.id, ForwardStatus::Error, Some(e.to_string()));
                 return;
             }
+            // 隐式连接成功:attempt/retry_at 已由 do_connect 复位,
+            // 已排程的重连定时器随之取消,不会二次连接
         }
         let Some(conn) = self.conn.as_ref() else { return };
         let result: Result<ActiveForward, CoreError> = async {
