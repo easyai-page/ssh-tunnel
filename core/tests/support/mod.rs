@@ -62,6 +62,39 @@ pub async fn start_ssh_server(opts: TestServerOpts) -> TestServerHandle {
     TestServerHandle { addr, shutdown }
 }
 
+/// 在指定地址重启 SSH 服务器（重连测试用：同端口复活，host key 不变）
+pub async fn start_ssh_server_on(addr: SocketAddr, opts: TestServerOpts) -> TestServerHandle {
+    // 重试绑定:刚关停的端口可能处于 TIME_WAIT
+    let listener = {
+        let mut last_err = None;
+        let mut listener = None;
+        for _ in 0..20 {
+            match TcpListener::bind(addr).await {
+                Ok(l) => { listener = Some(l); break; }
+                Err(e) => { last_err = Some(e); tokio::time::sleep(Duration::from_millis(100)).await; }
+            }
+        }
+        listener.unwrap_or_else(|| panic!("绑定 {addr} 失败: {last_err:?}"))
+    };
+    let key = decode_secret_key(TEST_SERVER_HOST_KEY, None).unwrap();
+    let config = Arc::new(Config {
+        keys: vec![key],
+        auth_rejection_time: Duration::ZERO,
+        ..Default::default()
+    });
+    let mut server = TestServer { opts, forwards: ForwardMap::default() };
+    // 同 start_ssh_server:run_on_socket 借用 server 与 listener（非 'static），
+    // 二者移进 spawn 任务内部，shutdown 句柄经 oneshot 传回
+    let (handle_tx, handle_rx) = tokio::sync::oneshot::channel();
+    tokio::spawn(async move {
+        let running = server.run_on_socket(config, &listener);
+        let _ = handle_tx.send(running.handle());
+        let _ = running.await;
+    });
+    let shutdown = handle_rx.await.unwrap();
+    TestServerHandle { addr, shutdown }
+}
+
 /// 纯 TCP echo 服务，充当 -L/-D 的转发目标和 -R 的本地目标
 pub async fn start_tcp_echo() -> SocketAddr {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
