@@ -5,10 +5,16 @@
 use russh::keys::{decode_secret_key, PublicKey};
 use russh::server::{self, Auth, Config, Msg, RunningServerHandle, Server as _, Session};
 use russh::{Channel, ChannelOpenFailure};
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
+use tokio::sync::Mutex;
+use tokio::task::JoinHandle;
+
+/// 已激活的 -R 监听：(address, port) → accept 循环任务。abort 即释放监听端口
+type ForwardMap = Arc<Mutex<HashMap<(String, u32), JoinHandle<()>>>>;
 
 pub const TEST_PASSWORD: &str = "test-password-123";
 
@@ -26,6 +32,7 @@ pub struct TestServerOpts {
 #[derive(Clone)]
 struct TestServer {
     opts: TestServerOpts,
+    forwards: ForwardMap,
 }
 
 pub struct TestServerHandle {
@@ -42,7 +49,7 @@ pub async fn start_ssh_server(opts: TestServerOpts) -> TestServerHandle {
         auth_rejection_time: Duration::ZERO,
         ..Default::default()
     });
-    let mut server = TestServer { opts };
+    let mut server = TestServer { opts, forwards: ForwardMap::default() };
     // run_on_socket 返回的 Future 借用 server 与 listener（非 'static），
     // 因此把二者移进 spawn 任务内部再调用；shutdown 句柄经 oneshot 传回
     let (handle_tx, handle_rx) = tokio::sync::oneshot::channel();
@@ -76,12 +83,13 @@ fn reject() -> Auth {
 
 struct TestHandler {
     opts: TestServerOpts,
+    forwards: ForwardMap,
 }
 
 impl server::Server for TestServer {
     type Handler = TestHandler;
     fn new_client(&mut self, _peer: Option<SocketAddr>) -> TestHandler {
-        TestHandler { opts: self.opts.clone() }
+        TestHandler { opts: self.opts.clone(), forwards: self.forwards.clone() }
     }
 }
 
@@ -137,7 +145,7 @@ impl server::Handler for TestHandler {
         *port = assigned as u32;
         let session_handle = session.handle();
         let connected_address = address.to_string();
-        tokio::spawn(async move {
+        let task = tokio::spawn(async move {
             while let Ok((socket, peer)) = listener.accept().await {
                 let Ok(channel) = session_handle
                     .channel_open_forwarded_tcpip(
@@ -157,6 +165,25 @@ impl server::Handler for TestHandler {
                 });
             }
         });
+        // 记录 accept 任务,cancel_tcpip_forward 据此撤销监听
+        self.forwards.lock().await.insert((address.to_string(), assigned as u32), task);
         Ok(true)
+    }
+
+    // 撤销 -R:abort accept 循环任务即释放服务器侧监听端口
+    async fn cancel_tcpip_forward(
+        &mut self,
+        address: &str,
+        port: u32,
+        _session: &mut Session,
+    ) -> Result<bool, Self::Error> {
+        let removed = self.forwards.lock().await.remove(&(address.to_string(), port));
+        match removed {
+            Some(task) => {
+                task.abort();
+                Ok(true)
+            }
+            None => Ok(false),
+        }
     }
 }
