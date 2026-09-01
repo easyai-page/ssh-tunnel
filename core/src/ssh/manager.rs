@@ -123,18 +123,31 @@ impl SshManager {
         if let Some(actor) = self.actors.write().await.remove(id) {
             let _ = actor.send(ActorCommand::Shutdown);
         }
-        {
+        let removed_forward_ids: Vec<String> = {
             let mut cfg = self.config.write().await;
             if !cfg.servers.iter().any(|s| s.id == id) {
                 return Err(CoreError::ServerNotFound(id.to_string()));
             }
             cfg.servers.retain(|s| s.id != id);
+            let ids: Vec<String> = cfg
+                .forwards
+                .iter()
+                .filter(|f| f.server_id == id)
+                .map(|f| f.id.clone())
+                .collect();
             cfg.forwards.retain(|f| f.server_id != id);
-        }
+            ids
+        };
         for kind in [SecretKind::Password, SecretKind::Key, SecretKind::KeyPassphrase] {
             let _ = self.secrets.delete(id, kind);
         }
-        self.snapshot.write().await.servers.remove(id);
+        // 级联删除的转发不会再有事件覆盖其快照,必须一并清除,否则托盘/前端渲染幽灵条目
+        let mut snap = self.snapshot.write().await;
+        snap.servers.remove(id);
+        for fid in removed_forward_ids {
+            snap.forwards.remove(&fid);
+        }
+        drop(snap);
         self.save().await
     }
 
