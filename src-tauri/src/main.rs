@@ -1,3 +1,6 @@
+// Windows 下 release 构建设为 GUI 子系统,否则启动时会附带一个常驻的控制台黑窗口
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 mod commands;
 mod logging;
 mod tray;
