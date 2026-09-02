@@ -11,8 +11,12 @@ onMounted(async () => {
 })
 
 async function save() {
-  await api.saveSettings({ ...form })
-  ElMessage.success('已保存')
+  try {
+    await api.saveSettings({ ...form })
+    ElMessage.success('已保存')
+  } catch {
+    // 失败提示已由 api 层弹出,这里不再重复
+  }
 }
 </script>
 

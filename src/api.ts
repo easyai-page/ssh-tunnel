@@ -2,27 +2,40 @@
 // 命令名与事件名集中在此，后端改名时只需改这一处
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
+import { ElMessage } from 'element-plus'
 import type {
   Forward, HostKeyPrompt, LogEntry, Server, Settings, StatusSnapshot, TunnelEvent, UpsertServerInput,
 } from './types'
 
+// 所有 command 调用经此封装：invoke 失败时弹出用户可读的错误提示
+// (Rust 侧错误串本身就是面向用户的文案)，再原样抛出,
+// 由调用方决定后续动作(如保存失败时保持对话框打开)
+async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  try {
+    return await invoke<T>(cmd, args)
+  } catch (e) {
+    ElMessage.error(String(e))
+    throw e
+  }
+}
+
 export const api = {
-  listServers: () => invoke<Server[]>('list_servers'),
-  upsertServer: (input: UpsertServerInput) => invoke<Server>('upsert_server', { input }),
-  deleteServer: (id: string) => invoke<void>('delete_server', { id }),
-  listForwards: () => invoke<Forward[]>('list_forwards'),
-  upsertForward: (forward: Forward) => invoke<Forward>('upsert_forward', { forward }),
-  deleteForward: (id: string) => invoke<void>('delete_forward', { id }),
-  startForward: (id: string) => invoke<void>('start_forward', { id }),
-  stopForward: (id: string) => invoke<void>('stop_forward', { id }),
-  connectServer: (id: string) => invoke<void>('connect_server', { id }),
-  disconnectServer: (id: string) => invoke<void>('disconnect_server', { id }),
-  getSnapshot: () => invoke<StatusSnapshot>('get_snapshot'),
-  getSettings: () => invoke<Settings>('get_settings'),
-  saveSettings: (settings: Settings) => invoke<void>('save_settings', { settings }),
-  getLogs: () => invoke<LogEntry[]>('get_logs'),
+  listServers: () => call<Server[]>('list_servers'),
+  upsertServer: (input: UpsertServerInput) => call<Server>('upsert_server', { input }),
+  deleteServer: (id: string) => call<void>('delete_server', { id }),
+  listForwards: () => call<Forward[]>('list_forwards'),
+  upsertForward: (forward: Forward) => call<Forward>('upsert_forward', { forward }),
+  deleteForward: (id: string) => call<void>('delete_forward', { id }),
+  startForward: (id: string) => call<void>('start_forward', { id }),
+  stopForward: (id: string) => call<void>('stop_forward', { id }),
+  connectServer: (id: string) => call<void>('connect_server', { id }),
+  disconnectServer: (id: string) => call<void>('disconnect_server', { id }),
+  getSnapshot: () => call<StatusSnapshot>('get_snapshot'),
+  getSettings: () => call<Settings>('get_settings'),
+  saveSettings: (settings: Settings) => call<void>('save_settings', { settings }),
+  getLogs: () => call<LogEntry[]>('get_logs'),
   respondHostKey: (promptId: string, trust: boolean) =>
-    invoke<void>('respond_host_key', { promptId, trust }),
+    call<void>('respond_host_key', { promptId, trust }),
 }
 
 export const onTunnelEvent = (cb: (ev: TunnelEvent) => void) =>

@@ -48,10 +48,20 @@ function forwardKindText(kind: string) {
 }
 
 async function saveServer(input: UpsertServerInput) {
-  await servers.save(input)
+  try {
+    await servers.save(input)
+    serverDialog.value = false
+  } catch {
+    // 错误提示已由 api 层弹出;保持对话框打开,用户修正后可重试
+  }
 }
 async function saveForward(f: Forward) {
-  await forwards.save(f)
+  try {
+    await forwards.save(f)
+    forwardDialog.value = false
+  } catch {
+    // 同上:保持对话框打开
+  }
 }
 
 defineExpose({

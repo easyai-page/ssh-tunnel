@@ -21,7 +21,7 @@ function submit() {
     form.target_port = null
   }
   emit('submit', { ...form })
-  emit('update:modelValue', false)
+  // 不在此处关对话框:保存是否成功只有父组件知道,由父组件在成功后关闭
 }
 </script>
 
