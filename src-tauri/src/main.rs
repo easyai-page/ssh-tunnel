@@ -96,6 +96,10 @@ pub fn run() {
                 logs,
             });
 
+            // 先建托盘再启动事件任务:事件任务一启动就 refresh_tray,
+            // 若托盘尚不存在 refresh 空转,随后 build_tray 又只能拿空缓存建首屏菜单
+            tray::build_tray(app)?;
+
             // core 事件 → 前端 + 托盘缓存 + 托盘菜单
             let mut rx = manager.subscribe();
             let app_handle = app.handle().clone();
@@ -116,8 +120,6 @@ pub fn run() {
                     }
                 }
             });
-
-            tray::build_tray(app)?;
 
             // 恢复 auto_start 转发
             tauri::async_runtime::spawn(async move {
