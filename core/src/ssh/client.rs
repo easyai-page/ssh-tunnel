@@ -165,12 +165,15 @@ pub async fn connect(
         remote_forwards: remote_forwards.clone(),
         disconnect_tx,
     };
-    // 网络抖动场景给连接与认证一个上限，避免 actor 卡死
-    let connect_future = client::connect(config, (server.host.as_str(), server.port), handler);
-    let mut handle = tokio::time::timeout(Duration::from_secs(10), connect_future)
-        .await
-        .map_err(|_| CoreError::Ssh("连接超时".into()))??;
-    authenticate(&mut handle, server, secrets).await?;
+    // 连接与认证共享同一个 10s 上限:对端不回认证响应时 authenticate 一样会挂起,
+    // 只包住 client::connect 会让 actor 的 select! 命令臂永久卡死
+    let mut handle = tokio::time::timeout(Duration::from_secs(10), async {
+        let mut handle = client::connect(config, (server.host.as_str(), server.port), handler).await?;
+        authenticate(&mut handle, server, secrets).await?;
+        Ok::<_, CoreError>(handle)
+    })
+    .await
+    .map_err(|_| CoreError::Ssh("连接或认证超时(10s)".into()))??;
     Ok(Connection { handle, disconnect_rx, remote_forwards })
 }
 
