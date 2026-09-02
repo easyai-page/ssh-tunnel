@@ -32,6 +32,14 @@ const FORWARD_KIND_TEXT: Record<string, string> = { local: '本地', remote: '�
 function statusText(s?: string) {
   return SERVER_STATUS_TEXT[s ?? ''] ?? '未连接'
 }
+// 连接/断开按钮的可见性:状态来源与 SERVER_STATUS_TEXT 同为 serverStatus。
+// 重连中两个都显示——「连接」等于立即重试,「断开」等于放弃重连
+function canConnect(id: string) {
+  return !['connected', 'connecting'].includes(servers.serverStatus[id]?.status ?? '')
+}
+function canDisconnect(id: string) {
+  return ['connected', 'connecting', 'reconnecting'].includes(servers.serverStatus[id]?.status ?? '')
+}
 function forwardStatusText(s?: string) {
   return FORWARD_STATUS_TEXT[s ?? ''] ?? '已停止'
 }
@@ -70,6 +78,10 @@ defineExpose({
           {{ statusText(servers.serverStatus[s.id]?.status) }}
         </div>
         <div class="server-actions">
+          <el-button v-if="canConnect(s.id)" size="small" text type="primary"
+            @click.stop="servers.connect(s.id)">连接</el-button>
+          <el-button v-if="canDisconnect(s.id)" size="small" text
+            @click.stop="servers.disconnect(s.id)">断开</el-button>
           <el-button size="small" text @click.stop="editingServer = s; serverDialog = true">编辑</el-button>
           <el-popconfirm title="删除该服务器及其全部转发?" @confirm="servers.remove(s.id)">
             <template #reference><el-button size="small" text type="danger" @click.stop>删除</el-button></template>
