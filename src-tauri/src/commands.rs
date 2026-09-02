@@ -5,7 +5,8 @@ use ssh_tunnel_core::secrets::SecretKind;
 use ssh_tunnel_core::ssh::StatusSnapshot;
 use tauri::{AppHandle, State};
 
-#[derive(Debug, serde::Deserialize)]
+// 不派生 Debug:本结构携带密码/密钥等敏感值,一次无意的 debug 日志即泄漏
+#[derive(serde::Deserialize)]
 pub struct UpsertServerInput {
     pub server: Server,
     /// Some = 写入钥匙串;None = 保持已有值不变
