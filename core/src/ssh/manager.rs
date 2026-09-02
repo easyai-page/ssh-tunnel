@@ -36,15 +36,23 @@ impl SshManager {
         let mut rx = events.subscribe();
         let snap = snapshot.clone();
         tokio::spawn(async move {
-            while let Ok(ev) = rx.recv().await {
-                let mut snap = snap.write().await;
-                match ev {
-                    TunnelEvent::ServerStatus { server_id, status, error } => {
-                        snap.servers.insert(server_id, ServerStatusEntry { status, error });
+            // 与 Tauri 壳事件任务同理(20dceea):Lagged 只是丢帧,状态事件天然幂等,
+            // 下一帧会覆盖;while-let 写法会让跟随任务静默退出,快照从此冻结
+            loop {
+                match rx.recv().await {
+                    Ok(ev) => {
+                        let mut snap = snap.write().await;
+                        match ev {
+                            TunnelEvent::ServerStatus { server_id, status, error } => {
+                                snap.servers.insert(server_id, ServerStatusEntry { status, error });
+                            }
+                            TunnelEvent::ForwardStatus { forward_id, status, error, .. } => {
+                                snap.forwards.insert(forward_id, ForwardStatusEntry { status, error });
+                            }
+                        }
                     }
-                    TunnelEvent::ForwardStatus { forward_id, status, error, .. } => {
-                        snap.forwards.insert(forward_id, ForwardStatusEntry { status, error });
-                    }
+                    Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(broadcast::error::RecvError::Closed) => break,
                 }
             }
         });
