@@ -123,3 +123,78 @@ async fn start_forward_via_manager_end_to_end() {
     assert_eq!(snap.servers.get(&s.id).unwrap().status, ServerStatus::Connected);
     mgr.shutdown_all().await;
 }
+
+#[tokio::test]
+async fn upsert_server_emits_final_statuses_and_allows_restart() {
+    let echo = start_tcp_echo().await;
+    let ssh = start_ssh_server(TestServerOpts { password: Some(TEST_PASSWORD), accept_keys: vec![] }).await;
+    let dir = tempfile::tempdir().unwrap();
+    // 与 start_forward_via_manager_end_to_end 同理:manager 须与测试共享同一个内存 secrets
+    let secrets = Arc::new(MemorySecretStore::new());
+    let store = ConfigStore::new(dir.path().join("config.json"));
+    let kh = Arc::new(Mutex::new(KnownHosts::new(dir.path().join("kh"))));
+    let decider: HostKeyDecider = Arc::new(|_| Box::pin(async { true }) as _);
+    let mgr = SshManager::new(store, secrets.clone(), kh, decider).unwrap();
+
+    let s = mgr.upsert_server(server_with("", ssh.addr)).await.unwrap();
+    secrets.set(&s.id, SecretKind::Password, TEST_PASSWORD).unwrap();
+
+    let port = {
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let p = l.local_addr().unwrap().port();
+        drop(l);
+        p
+    };
+    let f = mgr.upsert_forward(Forward {
+        id: String::new(), server_id: s.id.clone(), name: "echo".into(),
+        kind: ForwardKind::Local, bind_addr: "127.0.0.1".into(), bind_port: port,
+        target_host: Some(echo.ip().to_string()), target_port: Some(echo.port()),
+        auto_start: false,
+    }).await.unwrap();
+
+    let mut rx = mgr.subscribe();
+    mgr.start_forward(&f.id).await.unwrap();
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+    loop {
+        let ev = tokio::time::timeout(deadline - std::time::Instant::now(), rx.recv()).await.unwrap().unwrap();
+        if matches!(ev, TunnelEvent::ForwardStatus { status: ForwardStatus::Running, .. }) { break; }
+    }
+
+    // 修改服务器配置(重命名):manager 关停旧 actor。actor 退出前必须发出
+    // 终态事件,否则快照/前端/托盘永远显示「已连接/运行中」,stop 也成死路
+    let mut renamed = s.clone();
+    renamed.name = "renamed".into();
+    mgr.upsert_server(renamed).await.unwrap();
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+    let (mut saw_stopped, mut saw_disconnected) = (false, false);
+    while !(saw_stopped && saw_disconnected) {
+        let ev = tokio::time::timeout(deadline - std::time::Instant::now(), rx.recv()).await.unwrap().unwrap();
+        match ev {
+            TunnelEvent::ForwardStatus { status: ForwardStatus::Stopped, .. } => saw_stopped = true,
+            TunnelEvent::ServerStatus { status: ServerStatus::Disconnected, .. } => saw_disconnected = true,
+            _ => {}
+        }
+    }
+
+    // 快照由独立跟随任务维护,轮询等它追上事件流
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        let snap = mgr.snapshot().await;
+        let fwd_done = matches!(snap.forwards.get(&f.id).map(|e| e.status), Some(ForwardStatus::Stopped));
+        let srv_done = matches!(snap.servers.get(&s.id).map(|e| e.status), Some(ServerStatus::Disconnected));
+        if fwd_done && srv_done { break; }
+        assert!(std::time::Instant::now() < deadline, "快照未更新到终态: {snap:?}");
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+
+    // 再次启动:manager 应按新配置重建 actor,转发重新进入 Running
+    mgr.start_forward(&f.id).await.unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+    loop {
+        let ev = tokio::time::timeout(deadline - std::time::Instant::now(), rx.recv()).await.unwrap().unwrap();
+        if matches!(ev, TunnelEvent::ForwardStatus { status: ForwardStatus::Running, .. }) { break; }
+    }
+    mgr.shutdown_all().await;
+}

@@ -187,13 +187,23 @@ impl Actor {
         // Shutdown:清理一切。注意 dropping JoinHandle 不会取消任务,
         // local/socks 的 listener 必须显式 abort,否则端口一直被占
         self.teardown_conn().await;
-        for (_, (_, active)) in self.forwards.drain() {
+        // 退出前必须发出终态事件:快照/前端/托盘全靠事件驱动(actor 是唯一写者,
+        // manager 刻意不代清快照),静默退出会让「已连接/运行中」永远挂着,
+        // 之后 stop_forward 找不到 actor 直接 Ok(()) 返回,用户再也无法关掉它。
+        // drain 期间持有 forwards 的可变借用,无法调 emit_forward,先收集 id 再统一发
+        let mut stopped_ids = Vec::new();
+        for (id, (_, active)) in self.forwards.drain() {
             match active {
                 ActiveForward::Local(task) | ActiveForward::Socks(task) => task.abort(),
                 // 服务器侧 -R 监听随连接断开自动释放,无需 cancel
                 ActiveForward::Remote => {}
             }
+            stopped_ids.push(id);
         }
+        for id in stopped_ids {
+            self.emit_forward(&id, ForwardStatus::Stopped, None);
+        }
+        self.emit_server(ServerStatus::Disconnected, None);
     }
 
     /// 指数退避:1s/2s/4s/8s/16s/32s→封顶 30s
