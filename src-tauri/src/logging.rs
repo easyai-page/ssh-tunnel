@@ -33,8 +33,11 @@ impl LogBuffer {
             }
             logs.push_back(entry.clone());
         }
-        // 实时推给前端日志面板;emit 失败(窗口未建/已毁)不影响落盘与缓冲
-        if let Some(app) = self.app.lock().unwrap().as_ref() {
+        // 实时推给前端日志面板;emit 失败(窗口未建/已毁)不影响落盘与缓冲。
+        // 先克隆 AppHandle 出锁再 emit:emit 走 webview IPC 可能阻塞,
+        // 持锁调用会让其他线程的 push 全部排队
+        let app = self.app.lock().unwrap().clone();
+        if let Some(app) = app {
             let _ = app.emit("log", &entry);
         }
     }
