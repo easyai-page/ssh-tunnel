@@ -7,20 +7,31 @@ use ssh_tunnel_core::secrets::{MemorySecretStore, SecretKind, SecretStore};
 use ssh_tunnel_core::ssh::client::{connect, ChannelOpener, OpenChannelRequest};
 use ssh_tunnel_core::CoreError;
 use std::sync::Arc;
+use support::*;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{mpsc, Mutex};
-use support::*;
 
-async fn connected_opener(ssh_addr: std::net::SocketAddr) -> (ChannelOpener, tokio::task::JoinHandle<()>) {
+async fn connected_opener(
+    ssh_addr: std::net::SocketAddr,
+) -> (ChannelOpener, tokio::task::JoinHandle<()>) {
     let secrets = Arc::new(MemorySecretStore::new());
-    secrets.set("s1", SecretKind::Password, TEST_PASSWORD).unwrap();
+    secrets
+        .set("s1", SecretKind::Password, TEST_PASSWORD)
+        .unwrap();
     let server = Server {
-        id: "s1".into(), name: "t".into(), host: ssh_addr.ip().to_string(),
-        port: ssh_addr.port(), username: "u".into(), auth: AuthMethod::Password,
+        id: "s1".into(),
+        name: "t".into(),
+        host: ssh_addr.ip().to_string(),
+        port: ssh_addr.port(),
+        username: "u".into(),
+        auth: AuthMethod::Password,
     };
     let dir = tempfile::tempdir().unwrap();
-    let kh = Arc::new(Mutex::new(KnownHosts::new(Box::leak(Box::new(dir)).path().join("kh"))));
-    let decider: ssh_tunnel_core::ssh::client::HostKeyDecider = Arc::new(|_| Box::pin(async { true }));
+    let kh = Arc::new(Mutex::new(KnownHosts::new(
+        Box::leak(Box::new(dir)).path().join("kh"),
+    )));
+    let decider: ssh_tunnel_core::ssh::client::HostKeyDecider =
+        Arc::new(|_| Box::pin(async { true }));
     let conn = connect(&server, secrets, kh, decider).await.unwrap();
     // 模拟 actor:持有 handle,响应开通道请求
     let (tx, mut rx) = mpsc::channel::<OpenChannelRequest>(32);
@@ -40,7 +51,11 @@ async fn connected_opener(ssh_addr: std::net::SocketAddr) -> (ChannelOpener, tok
 #[tokio::test]
 async fn local_forward_pipes_data() {
     let echo = start_tcp_echo().await;
-    let ssh = start_ssh_server(TestServerOpts { password: Some(TEST_PASSWORD), accept_keys: vec![] }).await;
+    let ssh = start_ssh_server(TestServerOpts {
+        password: Some(TEST_PASSWORD),
+        accept_keys: vec![],
+    })
+    .await;
     let (opener, _pump) = connected_opener(ssh.addr).await;
 
     let listener = bind_listener("127.0.0.1", 0).await.unwrap();

@@ -31,7 +31,9 @@ pub struct ActorHandle {
 
 impl ActorHandle {
     pub fn send(&self, cmd: ActorCommand) -> Result<(), CoreError> {
-        self.tx.try_send(cmd).map_err(|e| CoreError::Other(format!("actor 不可用: {e}")))
+        self.tx
+            .try_send(cmd)
+            .map_err(|e| CoreError::Other(format!("actor 不可用: {e}")))
     }
 }
 
@@ -76,9 +78,20 @@ pub fn spawn_actor(
     let (tx, rx) = mpsc::channel(32);
     let (open_tx, open_rx) = mpsc::channel(64);
     let actor = Actor {
-        server, secrets, known_hosts, decider, auto_reconnect, events, rx,
-        open_tx, open_rx, conn: None, forwards: HashMap::new(), manual_disconnect: false,
-        retry_at: None, attempt: 0,
+        server,
+        secrets,
+        known_hosts,
+        decider,
+        auto_reconnect,
+        events,
+        rx,
+        open_tx,
+        open_rx,
+        conn: None,
+        forwards: HashMap::new(),
+        manual_disconnect: false,
+        retry_at: None,
+        attempt: 0,
     };
     tokio::spawn(actor.run());
     ActorHandle { tx }
@@ -87,7 +100,11 @@ pub fn spawn_actor(
 impl Actor {
     fn emit_server(&self, status: ServerStatus, error: Option<String>) {
         // 无订阅者时 send 返回 Err,属正常（如 CLI 场景）,忽略
-        let _ = self.events.send(TunnelEvent::ServerStatus { server_id: self.server.id.clone(), status, error });
+        let _ = self.events.send(TunnelEvent::ServerStatus {
+            server_id: self.server.id.clone(),
+            status,
+            error,
+        });
     }
 
     fn emit_forward(&self, forward_id: &str, status: ForwardStatus, error: Option<String>) {
@@ -215,7 +232,13 @@ impl Actor {
 
     async fn do_connect(&mut self) -> Result<(), CoreError> {
         self.emit_server(ServerStatus::Connecting, None);
-        let conn = connect(&self.server, self.secrets.clone(), self.known_hosts.clone(), self.decider.clone()).await;
+        let conn = connect(
+            &self.server,
+            self.secrets.clone(),
+            self.known_hosts.clone(),
+            self.decider.clone(),
+        )
+        .await;
         match conn {
             Ok(conn) => {
                 self.conn = Some(conn);
@@ -238,12 +261,17 @@ impl Actor {
 
     async fn teardown_conn(&mut self) {
         if let Some(conn) = self.conn.take() {
-            let _ = conn.handle.disconnect(russh::Disconnect::ByApplication, "bye", "").await;
+            let _ = conn
+                .handle
+                .disconnect(russh::Disconnect::ByApplication, "bye", "")
+                .await;
         }
     }
 
     async fn restore_remote_forwards(&mut self) {
-        let Some(conn) = self.conn.as_ref() else { return };
+        let Some(conn) = self.conn.as_ref() else {
+            return;
+        };
         // 先 iter_mut 遍历写回分配端口并收集事件,循环结束后再 emit
         // (iter_mut 借用 self.forwards 期间无法再借整个 self 调 emit_forward)
         let mut events = Vec::new();
@@ -283,7 +311,9 @@ impl Actor {
             // 隐式连接成功:attempt/retry_at 已由 do_connect 复位,
             // 已排程的重连定时器随之取消,不会二次连接
         }
-        let Some(conn) = self.conn.as_ref() else { return };
+        let Some(conn) = self.conn.as_ref() else {
+            return;
+        };
         let result: Result<ActiveForward, CoreError> = async {
             match forward.kind {
                 ForwardKind::Local => {
@@ -292,16 +322,25 @@ impl Actor {
                     Ok(ActiveForward::Local(spawn_local_forward(
                         listener,
                         opener,
-                        forward.target_host.clone().unwrap_or_else(|| "127.0.0.1".into()),
-                        forward.target_port.ok_or_else(|| CoreError::Other("缺少目标端口".into()))?,
+                        forward
+                            .target_host
+                            .clone()
+                            .unwrap_or_else(|| "127.0.0.1".into()),
+                        forward
+                            .target_port
+                            .ok_or_else(|| CoreError::Other("缺少目标端口".into()))?,
                     )))
                 }
                 ForwardKind::Dynamic => {
                     let listener = bind_listener(&forward.bind_addr, forward.bind_port).await?;
-                    Ok(ActiveForward::Socks(spawn_socks_forward(listener, ChannelOpener::new(self.open_tx.clone()))))
+                    Ok(ActiveForward::Socks(spawn_socks_forward(
+                        listener,
+                        ChannelOpener::new(self.open_tx.clone()),
+                    )))
                 }
                 ForwardKind::Remote => {
-                    let assigned = start_remote_forward(&forward, &conn.handle, &conn.remote_forwards).await?;
+                    let assigned =
+                        start_remote_forward(&forward, &conn.handle, &conn.remote_forwards).await?;
                     // 写回服务器分配端口,stop/恢复时按正确端口 cancel 与统计
                     forward.bind_port = assigned as u16;
                     Ok(ActiveForward::Remote)
@@ -320,13 +359,16 @@ impl Actor {
     }
 
     async fn stop_forward(&mut self, forward_id: &str) {
-        let Some((forward, active)) = self.forwards.remove(forward_id) else { return };
+        let Some((forward, active)) = self.forwards.remove(forward_id) else {
+            return;
+        };
         match active {
             ActiveForward::Local(task) | ActiveForward::Socks(task) => task.abort(),
             ActiveForward::Remote => {
                 if let Some(conn) = self.conn.as_ref() {
                     // stop_remote_forward 内部无条件清理映射,cancel 失败仅 warn
-                    let _ = stop_remote_forward(&forward, &conn.handle, &conn.remote_forwards).await;
+                    let _ =
+                        stop_remote_forward(&forward, &conn.handle, &conn.remote_forwards).await;
                 }
             }
         }

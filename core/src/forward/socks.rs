@@ -6,7 +6,9 @@ use tokio::task::JoinHandle;
 pub fn spawn_socks_forward(listener: TcpListener, opener: ChannelOpener) -> JoinHandle<()> {
     tokio::spawn(async move {
         loop {
-            let Ok((mut socket, _)) = listener.accept().await else { break };
+            let Ok((mut socket, _)) = listener.accept().await else {
+                break;
+            };
             let opener = opener.clone();
             tokio::spawn(async move {
                 let result = async {

@@ -8,8 +8,8 @@ use ssh_tunnel_core::ssh::client::HostKeyDecider;
 use ssh_tunnel_core::ssh::manager::SshManager;
 use ssh_tunnel_core::ssh::TunnelEvent;
 use std::sync::Arc;
-use tokio::sync::Mutex;
 use support::*;
+use tokio::sync::Mutex;
 
 fn make_manager(dir: &std::path::Path) -> SshManager {
     let store = ConfigStore::new(dir.join("config.json"));
@@ -21,8 +21,12 @@ fn make_manager(dir: &std::path::Path) -> SshManager {
 
 fn server_with(id: &str, addr: std::net::SocketAddr) -> Server {
     Server {
-        id: id.into(), name: "t".into(), host: addr.ip().to_string(),
-        port: addr.port(), username: "u".into(), auth: AuthMethod::Password,
+        id: id.into(),
+        name: "t".into(),
+        host: addr.ip().to_string(),
+        port: addr.port(),
+        username: "u".into(),
+        auth: AuthMethod::Password,
     }
 }
 
@@ -30,13 +34,22 @@ fn server_with(id: &str, addr: std::net::SocketAddr) -> Server {
 async fn crud_persists_to_disk() {
     let dir = tempfile::tempdir().unwrap();
     let mgr = make_manager(dir.path());
-    let s = mgr.upsert_server(server_with("", "127.0.0.1:1".parse().unwrap())).await.unwrap();
+    let s = mgr
+        .upsert_server(server_with("", "127.0.0.1:1".parse().unwrap()))
+        .await
+        .unwrap();
     assert!(!s.id.is_empty(), "空 id 应生成 uuid");
 
     let f = Forward {
-        id: String::new(), server_id: s.id.clone(), name: "mysql".into(),
-        kind: ForwardKind::Local, bind_addr: "127.0.0.1".into(), bind_port: 3306,
-        target_host: Some("db".into()), target_port: Some(3306), auto_start: false,
+        id: String::new(),
+        server_id: s.id.clone(),
+        name: "mysql".into(),
+        kind: ForwardKind::Local,
+        bind_addr: "127.0.0.1".into(),
+        bind_port: 3306,
+        target_host: Some("db".into()),
+        target_port: Some(3306),
+        auto_start: false,
     };
     let f = mgr.upsert_forward(f).await.unwrap();
 
@@ -60,7 +73,10 @@ async fn delete_server_removes_secrets() {
     let decider: HostKeyDecider = Arc::new(|_| Box::pin(async { true }) as _);
     let mgr = SshManager::new(store, secrets.clone(), kh, decider).unwrap();
 
-    let s = mgr.upsert_server(server_with("", "127.0.0.1:1".parse().unwrap())).await.unwrap();
+    let s = mgr
+        .upsert_server(server_with("", "127.0.0.1:1".parse().unwrap()))
+        .await
+        .unwrap();
     secrets.set(&s.id, SecretKind::Password, "pw").unwrap();
     mgr.delete_server(&s.id).await.unwrap();
     assert_eq!(secrets.get(&s.id, SecretKind::Password).unwrap(), None);
@@ -69,7 +85,11 @@ async fn delete_server_removes_secrets() {
 #[tokio::test]
 async fn start_forward_via_manager_end_to_end() {
     let echo = start_tcp_echo().await;
-    let ssh = start_ssh_server(TestServerOpts { password: Some(TEST_PASSWORD), accept_keys: vec![] }).await;
+    let ssh = start_ssh_server(TestServerOpts {
+        password: Some(TEST_PASSWORD),
+        accept_keys: vec![],
+    })
+    .await;
     let dir = tempfile::tempdir().unwrap();
     let mgr = make_manager(dir.path());
 
@@ -84,8 +104,13 @@ async fn start_forward_via_manager_end_to_end() {
     let decider: HostKeyDecider = Arc::new(|_| Box::pin(async { true }) as _);
     let mgr = SshManager::new(store, secrets.clone(), kh, decider).unwrap();
 
-    let s = mgr.upsert_server(server_with(&s.id, ssh.addr)).await.unwrap();
-    secrets.set(&s.id, SecretKind::Password, TEST_PASSWORD).unwrap();
+    let s = mgr
+        .upsert_server(server_with(&s.id, ssh.addr))
+        .await
+        .unwrap();
+    secrets
+        .set(&s.id, SecretKind::Password, TEST_PASSWORD)
+        .unwrap();
 
     let port = {
         let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -93,12 +118,20 @@ async fn start_forward_via_manager_end_to_end() {
         drop(l);
         p
     };
-    let f = mgr.upsert_forward(Forward {
-        id: String::new(), server_id: s.id.clone(), name: "echo".into(),
-        kind: ForwardKind::Local, bind_addr: "127.0.0.1".into(), bind_port: port,
-        target_host: Some(echo.ip().to_string()), target_port: Some(echo.port()),
-        auto_start: false,
-    }).await.unwrap();
+    let f = mgr
+        .upsert_forward(Forward {
+            id: String::new(),
+            server_id: s.id.clone(),
+            name: "echo".into(),
+            kind: ForwardKind::Local,
+            bind_addr: "127.0.0.1".into(),
+            bind_port: port,
+            target_host: Some(echo.ip().to_string()),
+            target_port: Some(echo.port()),
+            auto_start: false,
+        })
+        .await
+        .unwrap();
 
     let mut rx = mgr.subscribe();
     mgr.start_forward(&f.id).await.unwrap();
@@ -106,12 +139,25 @@ async fn start_forward_via_manager_end_to_end() {
     // 等 Running 事件
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
     loop {
-        let ev = tokio::time::timeout(deadline - std::time::Instant::now(), rx.recv()).await.unwrap().unwrap();
-        if matches!(ev, TunnelEvent::ForwardStatus { status: ForwardStatus::Running, .. }) { break; }
+        let ev = tokio::time::timeout(deadline - std::time::Instant::now(), rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        if matches!(
+            ev,
+            TunnelEvent::ForwardStatus {
+                status: ForwardStatus::Running,
+                ..
+            }
+        ) {
+            break;
+        }
     }
 
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    let mut client = tokio::net::TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+    let mut client = tokio::net::TcpStream::connect(("127.0.0.1", port))
+        .await
+        .unwrap();
     client.write_all(b"mgr").await.unwrap();
     let mut buf = vec![0u8; 3];
     client.read_exact(&mut buf).await.unwrap();
@@ -119,15 +165,25 @@ async fn start_forward_via_manager_end_to_end() {
 
     // 快照应反映运行状态
     let snap = mgr.snapshot().await;
-    assert_eq!(snap.forwards.get(&f.id).unwrap().status, ForwardStatus::Running);
-    assert_eq!(snap.servers.get(&s.id).unwrap().status, ServerStatus::Connected);
+    assert_eq!(
+        snap.forwards.get(&f.id).unwrap().status,
+        ForwardStatus::Running
+    );
+    assert_eq!(
+        snap.servers.get(&s.id).unwrap().status,
+        ServerStatus::Connected
+    );
     mgr.shutdown_all().await;
 }
 
 #[tokio::test]
 async fn upsert_server_emits_final_statuses_and_allows_restart() {
     let echo = start_tcp_echo().await;
-    let ssh = start_ssh_server(TestServerOpts { password: Some(TEST_PASSWORD), accept_keys: vec![] }).await;
+    let ssh = start_ssh_server(TestServerOpts {
+        password: Some(TEST_PASSWORD),
+        accept_keys: vec![],
+    })
+    .await;
     let dir = tempfile::tempdir().unwrap();
     // 与 start_forward_via_manager_end_to_end 同理:manager 须与测试共享同一个内存 secrets
     let secrets = Arc::new(MemorySecretStore::new());
@@ -137,7 +193,9 @@ async fn upsert_server_emits_final_statuses_and_allows_restart() {
     let mgr = SshManager::new(store, secrets.clone(), kh, decider).unwrap();
 
     let s = mgr.upsert_server(server_with("", ssh.addr)).await.unwrap();
-    secrets.set(&s.id, SecretKind::Password, TEST_PASSWORD).unwrap();
+    secrets
+        .set(&s.id, SecretKind::Password, TEST_PASSWORD)
+        .unwrap();
 
     let port = {
         let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -145,20 +203,39 @@ async fn upsert_server_emits_final_statuses_and_allows_restart() {
         drop(l);
         p
     };
-    let f = mgr.upsert_forward(Forward {
-        id: String::new(), server_id: s.id.clone(), name: "echo".into(),
-        kind: ForwardKind::Local, bind_addr: "127.0.0.1".into(), bind_port: port,
-        target_host: Some(echo.ip().to_string()), target_port: Some(echo.port()),
-        auto_start: false,
-    }).await.unwrap();
+    let f = mgr
+        .upsert_forward(Forward {
+            id: String::new(),
+            server_id: s.id.clone(),
+            name: "echo".into(),
+            kind: ForwardKind::Local,
+            bind_addr: "127.0.0.1".into(),
+            bind_port: port,
+            target_host: Some(echo.ip().to_string()),
+            target_port: Some(echo.port()),
+            auto_start: false,
+        })
+        .await
+        .unwrap();
 
     let mut rx = mgr.subscribe();
     mgr.start_forward(&f.id).await.unwrap();
 
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
     loop {
-        let ev = tokio::time::timeout(deadline - std::time::Instant::now(), rx.recv()).await.unwrap().unwrap();
-        if matches!(ev, TunnelEvent::ForwardStatus { status: ForwardStatus::Running, .. }) { break; }
+        let ev = tokio::time::timeout(deadline - std::time::Instant::now(), rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        if matches!(
+            ev,
+            TunnelEvent::ForwardStatus {
+                status: ForwardStatus::Running,
+                ..
+            }
+        ) {
+            break;
+        }
     }
 
     // 修改服务器配置(重命名):manager 关停旧 actor。actor 退出前必须发出
@@ -170,10 +247,19 @@ async fn upsert_server_emits_final_statuses_and_allows_restart() {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
     let (mut saw_stopped, mut saw_disconnected) = (false, false);
     while !(saw_stopped && saw_disconnected) {
-        let ev = tokio::time::timeout(deadline - std::time::Instant::now(), rx.recv()).await.unwrap().unwrap();
+        let ev = tokio::time::timeout(deadline - std::time::Instant::now(), rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
         match ev {
-            TunnelEvent::ForwardStatus { status: ForwardStatus::Stopped, .. } => saw_stopped = true,
-            TunnelEvent::ServerStatus { status: ServerStatus::Disconnected, .. } => saw_disconnected = true,
+            TunnelEvent::ForwardStatus {
+                status: ForwardStatus::Stopped,
+                ..
+            } => saw_stopped = true,
+            TunnelEvent::ServerStatus {
+                status: ServerStatus::Disconnected,
+                ..
+            } => saw_disconnected = true,
             _ => {}
         }
     }
@@ -182,10 +268,21 @@ async fn upsert_server_emits_final_statuses_and_allows_restart() {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     loop {
         let snap = mgr.snapshot().await;
-        let fwd_done = matches!(snap.forwards.get(&f.id).map(|e| e.status), Some(ForwardStatus::Stopped));
-        let srv_done = matches!(snap.servers.get(&s.id).map(|e| e.status), Some(ServerStatus::Disconnected));
-        if fwd_done && srv_done { break; }
-        assert!(std::time::Instant::now() < deadline, "快照未更新到终态: {snap:?}");
+        let fwd_done = matches!(
+            snap.forwards.get(&f.id).map(|e| e.status),
+            Some(ForwardStatus::Stopped)
+        );
+        let srv_done = matches!(
+            snap.servers.get(&s.id).map(|e| e.status),
+            Some(ServerStatus::Disconnected)
+        );
+        if fwd_done && srv_done {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "快照未更新到终态: {snap:?}"
+        );
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     }
 
@@ -193,8 +290,19 @@ async fn upsert_server_emits_final_statuses_and_allows_restart() {
     mgr.start_forward(&f.id).await.unwrap();
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
     loop {
-        let ev = tokio::time::timeout(deadline - std::time::Instant::now(), rx.recv()).await.unwrap().unwrap();
-        if matches!(ev, TunnelEvent::ForwardStatus { status: ForwardStatus::Running, .. }) { break; }
+        let ev = tokio::time::timeout(deadline - std::time::Instant::now(), rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        if matches!(
+            ev,
+            TunnelEvent::ForwardStatus {
+                status: ForwardStatus::Running,
+                ..
+            }
+        ) {
+            break;
+        }
     }
     mgr.shutdown_all().await;
 }

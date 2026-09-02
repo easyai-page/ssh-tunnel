@@ -9,7 +9,10 @@ struct SmokeHandler;
 
 impl Handler for SmokeHandler {
     type Error = russh::Error;
-    async fn check_server_key(&mut self, _key: &PublicKeyOrCertificate) -> Result<bool, Self::Error> {
+    async fn check_server_key(
+        &mut self,
+        _key: &PublicKeyOrCertificate,
+    ) -> Result<bool, Self::Error> {
         Ok(true)
     }
 }
@@ -22,8 +25,13 @@ async fn connect_and_password_auth() {
     })
     .await;
     let config = Arc::new(client::Config::default());
-    let mut handle = client::connect(config, server.addr, SmokeHandler).await.unwrap();
-    let result = handle.authenticate_password("u", TEST_PASSWORD).await.unwrap();
+    let mut handle = client::connect(config, server.addr, SmokeHandler)
+        .await
+        .unwrap();
+    let result = handle
+        .authenticate_password("u", TEST_PASSWORD)
+        .await
+        .unwrap();
     assert!(matches!(result, AuthResult::Success));
     server.shutdown.shutdown("test done".into());
 }

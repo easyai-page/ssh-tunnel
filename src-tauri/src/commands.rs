@@ -31,32 +31,65 @@ pub async fn list_servers(state: State<'_, AppState>) -> Result<Vec<Server>, Str
 }
 
 #[tauri::command]
-pub async fn upsert_server(input: UpsertServerInput, app: AppHandle, state: State<'_, AppState>) -> Result<Server, String> {
+pub async fn upsert_server(
+    input: UpsertServerInput,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Server, String> {
     // 认证方式变更时旧凭据作废,先清再写
-    let old = state.manager.list_servers().await.into_iter().find(|s| s.id == input.server.id);
+    let old = state
+        .manager
+        .list_servers()
+        .await
+        .into_iter()
+        .find(|s| s.id == input.server.id);
     if let Some(old) = old {
         if old.auth != input.server.auth {
-            for kind in [SecretKind::Password, SecretKind::Key, SecretKind::KeyPassphrase] {
+            for kind in [
+                SecretKind::Password,
+                SecretKind::Key,
+                SecretKind::KeyPassphrase,
+            ] {
                 let _ = state.manager.secrets().delete(&input.server.id, kind);
             }
         }
     }
-    let saved = state.manager.upsert_server(input.server).await.map_err(err)?;
+    let saved = state
+        .manager
+        .upsert_server(input.server)
+        .await
+        .map_err(err)?;
     if let Some(v) = input.password {
-        state.manager.secrets().set(&saved.id, SecretKind::Password, &v).map_err(err)?;
+        state
+            .manager
+            .secrets()
+            .set(&saved.id, SecretKind::Password, &v)
+            .map_err(err)?;
     }
     if let Some(v) = input.key_data {
-        state.manager.secrets().set(&saved.id, SecretKind::Key, &v).map_err(err)?;
+        state
+            .manager
+            .secrets()
+            .set(&saved.id, SecretKind::Key, &v)
+            .map_err(err)?;
     }
     if let Some(v) = input.key_passphrase {
-        state.manager.secrets().set(&saved.id, SecretKind::KeyPassphrase, &v).map_err(err)?;
+        state
+            .manager
+            .secrets()
+            .set(&saved.id, SecretKind::KeyPassphrase, &v)
+            .map_err(err)?;
     }
     after_config_change(&app).await;
     Ok(saved)
 }
 
 #[tauri::command]
-pub async fn delete_server(id: String, app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+pub async fn delete_server(
+    id: String,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
     state.manager.delete_server(&id).await.map_err(err)?;
     after_config_change(&app).await;
     Ok(())
@@ -68,14 +101,22 @@ pub async fn list_forwards(state: State<'_, AppState>) -> Result<Vec<Forward>, S
 }
 
 #[tauri::command]
-pub async fn upsert_forward(forward: Forward, app: AppHandle, state: State<'_, AppState>) -> Result<Forward, String> {
+pub async fn upsert_forward(
+    forward: Forward,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Forward, String> {
     let saved = state.manager.upsert_forward(forward).await.map_err(err)?;
     after_config_change(&app).await;
     Ok(saved)
 }
 
 #[tauri::command]
-pub async fn delete_forward(id: String, app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+pub async fn delete_forward(
+    id: String,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
     state.manager.delete_forward(&id).await.map_err(err)?;
     after_config_change(&app).await;
     Ok(())
@@ -112,13 +153,25 @@ pub async fn get_settings(state: State<'_, AppState>) -> Result<Settings, String
 }
 
 #[tauri::command]
-pub async fn save_settings(settings: Settings, app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
-    state.manager.update_settings(settings.clone()).await.map_err(err)?;
+pub async fn save_settings(
+    settings: Settings,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    state
+        .manager
+        .update_settings(settings.clone())
+        .await
+        .map_err(err)?;
     *state.settings_cache.write().unwrap() = settings.clone();
     // 开机自启跟随设置
     use tauri_plugin_autostart::ManagerExt;
     let autostart = app.autolaunch();
-    let _ = if settings.launch_at_login { autostart.enable() } else { autostart.disable() };
+    let _ = if settings.launch_at_login {
+        autostart.enable()
+    } else {
+        autostart.disable()
+    };
     Ok(())
 }
 
@@ -128,7 +181,11 @@ pub async fn get_logs(state: State<'_, AppState>) -> Result<Vec<LogEntry>, Strin
 }
 
 #[tauri::command]
-pub async fn respond_host_key(prompt_id: String, trust: bool, state: State<'_, AppState>) -> Result<(), String> {
+pub async fn respond_host_key(
+    prompt_id: String,
+    trust: bool,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
     let sender = state.pending_host_keys.lock().await.remove(&prompt_id);
     if let Some(tx) = sender {
         let _ = tx.send(trust);

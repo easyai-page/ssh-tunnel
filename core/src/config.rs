@@ -14,7 +14,12 @@ pub struct AppConfig {
 
 impl Default for AppConfig {
     fn default() -> Self {
-        Self { version: 1, servers: vec![], forwards: vec![], settings: Settings::default() }
+        Self {
+            version: 1,
+            servers: vec![],
+            forwards: vec![],
+            settings: Settings::default(),
+        }
     }
 }
 
@@ -62,13 +67,22 @@ mod tests {
         AppConfig {
             version: 1,
             servers: vec![Server {
-                id: "s1".into(), name: "db".into(), host: "10.0.0.2".into(),
-                port: 22, username: "u".into(), auth: AuthMethod::Password,
+                id: "s1".into(),
+                name: "db".into(),
+                host: "10.0.0.2".into(),
+                port: 22,
+                username: "u".into(),
+                auth: AuthMethod::Password,
             }],
             forwards: vec![Forward {
-                id: "f1".into(), server_id: "s1".into(), name: "mysql".into(),
-                kind: ForwardKind::Local, bind_addr: "127.0.0.1".into(), bind_port: 3306,
-                target_host: Some("127.0.0.1".into()), target_port: Some(3306),
+                id: "f1".into(),
+                server_id: "s1".into(),
+                name: "mysql".into(),
+                kind: ForwardKind::Local,
+                bind_addr: "127.0.0.1".into(),
+                bind_port: 3306,
+                target_host: Some("127.0.0.1".into()),
+                target_port: Some(3306),
                 auto_start: true,
             }],
             settings: Settings::default(),
@@ -99,7 +113,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = ConfigStore::new(dir.path().join("config.json"));
         store.save(&sample_config()).unwrap();
-        let mode = std::fs::metadata(dir.path().join("config.json")).unwrap().permissions().mode();
+        let mode = std::fs::metadata(dir.path().join("config.json"))
+            .unwrap()
+            .permissions()
+            .mode();
         assert_eq!(mode & 0o777, 0o600);
     }
 

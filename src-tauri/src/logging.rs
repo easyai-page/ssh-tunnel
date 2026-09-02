@@ -83,9 +83,15 @@ pub fn init_logging() -> LogBuffer {
     let file = tracing_appender::rolling::daily(&log_dir, "ssh-tunnel.log");
     tracing::subscriber::set_global_default(
         Registry::default()
-            .with(BufferLayer { buffer: buffer.clone() })
+            .with(BufferLayer {
+                buffer: buffer.clone(),
+            })
             .with(tracing_subscriber::fmt::layer().with_writer(std::io::stdout))
-            .with(tracing_subscriber::fmt::layer().with_ansi(false).with_writer(file)),
+            .with(
+                tracing_subscriber::fmt::layer()
+                    .with_ansi(false)
+                    .with_writer(file),
+            ),
     )
     .expect("初始化日志失败");
     buffer

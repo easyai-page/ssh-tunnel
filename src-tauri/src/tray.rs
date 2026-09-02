@@ -4,7 +4,9 @@
 use crate::{AppState, TrayCache};
 use ssh_tunnel_core::model::{ForwardKind, ForwardStatus, ServerStatus};
 use tauri::image::Image;
-use tauri::menu::{CheckMenuItemBuilder, Menu, MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
+use tauri::menu::{
+    CheckMenuItemBuilder, Menu, MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder,
+};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -39,13 +41,29 @@ pub async fn refresh_cache(app: &AppHandle) {
     let servers = state.manager.list_servers().await;
     let forwards = state.manager.list_forwards().await;
     let snapshot = state.manager.snapshot().await;
-    *state.tray_cache.write().unwrap() = TrayCache { servers, forwards, snapshot };
+    *state.tray_cache.write().unwrap() = TrayCache {
+        servers,
+        forwards,
+        snapshot,
+    };
 }
 
 fn forward_label(f: &ssh_tunnel_core::model::Forward) -> String {
     match f.kind {
-        ForwardKind::Local => format!("{} (本地 :{} → {}:{})", f.name, f.bind_port, f.target_host.as_deref().unwrap_or(""), f.target_port.unwrap_or(0)),
-        ForwardKind::Remote => format!("{} (远程 :{} → {}:{})", f.name, f.bind_port, f.target_host.as_deref().unwrap_or(""), f.target_port.unwrap_or(0)),
+        ForwardKind::Local => format!(
+            "{} (本地 :{} → {}:{})",
+            f.name,
+            f.bind_port,
+            f.target_host.as_deref().unwrap_or(""),
+            f.target_port.unwrap_or(0)
+        ),
+        ForwardKind::Remote => format!(
+            "{} (远程 :{} → {}:{})",
+            f.name,
+            f.bind_port,
+            f.target_host.as_deref().unwrap_or(""),
+            f.target_port.unwrap_or(0)
+        ),
         ForwardKind::Dynamic => format!("{} (SOCKS5 :{})", f.name, f.bind_port),
     }
 }
@@ -56,7 +74,11 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
 
     let mut builder = MenuBuilder::new(app);
     if cache.servers.is_empty() {
-        builder = builder.item(&MenuItemBuilder::with_id("empty", "暂无服务器,点击「显示主窗口」添加").enabled(false).build(app)?);
+        builder = builder.item(
+            &MenuItemBuilder::with_id("empty", "暂无服务器,点击「显示主窗口」添加")
+                .enabled(false)
+                .build(app)?,
+        );
     }
     for server in &cache.servers {
         let status = cache.snapshot.servers.get(&server.id).map(|s| s.status);
@@ -69,15 +91,32 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         };
         // 服务器节点用 Submenu 呈现,无需菜单 id(不可点击触发事件)
         let mut sub = SubmenuBuilder::new(app, format!("{} ({})", server.name, status_text));
-        let server_forwards: Vec<_> = cache.forwards.iter().filter(|f| f.server_id == server.id).collect();
+        let server_forwards: Vec<_> = cache
+            .forwards
+            .iter()
+            .filter(|f| f.server_id == server.id)
+            .collect();
         if server_forwards.is_empty() {
-            sub = sub.item(&MenuItemBuilder::with_id(format!("none:{}", server.id), "暂无转发").enabled(false).build(app)?);
+            sub = sub.item(
+                &MenuItemBuilder::with_id(format!("none:{}", server.id), "暂无转发")
+                    .enabled(false)
+                    .build(app)?,
+            );
         }
         for f in server_forwards {
-            let running = matches!(cache.snapshot.forwards.get(&f.id).map(|s| s.status), Some(ForwardStatus::Running));
-            sub = sub.item(&CheckMenuItemBuilder::with_id(format!("fwd:{}", f.id), forward_label(f)).checked(running).build(app)?);
+            let running = matches!(
+                cache.snapshot.forwards.get(&f.id).map(|s| s.status),
+                Some(ForwardStatus::Running)
+            );
+            sub = sub.item(
+                &CheckMenuItemBuilder::with_id(format!("fwd:{}", f.id), forward_label(f))
+                    .checked(running)
+                    .build(app)?,
+            );
         }
-        sub = sub.separator().item(&MenuItemBuilder::with_id(format!("add:{}", server.id), "添加转发…").build(app)?);
+        sub = sub
+            .separator()
+            .item(&MenuItemBuilder::with_id(format!("add:{}", server.id), "添加转发…").build(app)?);
         builder = builder.item(&sub.build()?);
     }
     builder = builder
@@ -91,16 +130,36 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
 fn overall_icon(app: &AppHandle) -> Image<'static> {
     let state = app.state::<AppState>();
     let cache = state.tray_cache.read().unwrap();
-    let has_error = cache.snapshot.servers.values().any(|s| s.status == ServerStatus::Error || s.status == ServerStatus::Reconnecting)
-        || cache.snapshot.forwards.values().any(|s| s.status == ForwardStatus::Error);
-    let has_running = cache.snapshot.forwards.values().any(|s| s.status == ForwardStatus::Running);
-    let color = if has_error { RED } else if has_running { GREEN } else { GREY };
+    let has_error = cache
+        .snapshot
+        .servers
+        .values()
+        .any(|s| s.status == ServerStatus::Error || s.status == ServerStatus::Reconnecting)
+        || cache
+            .snapshot
+            .forwards
+            .values()
+            .any(|s| s.status == ForwardStatus::Error);
+    let has_running = cache
+        .snapshot
+        .forwards
+        .values()
+        .any(|s| s.status == ForwardStatus::Running);
+    let color = if has_error {
+        RED
+    } else if has_running {
+        GREEN
+    } else {
+        GREY
+    };
     circle_icon(color)
 }
 
 /// 从最新缓存重建菜单 + 更新图标(同步;由事件任务与 command 在 refresh_cache 后调用)
 pub fn refresh_tray(app: &AppHandle) {
-    let Some(tray) = app.tray_by_id(TRAY_ID) else { return };
+    let Some(tray) = app.tray_by_id(TRAY_ID) else {
+        return;
+    };
     if let Ok(menu) = build_menu(app) {
         let _ = tray.set_menu(Some(menu));
     }
@@ -120,7 +179,10 @@ pub fn build_tray(app: &mut tauri::App) -> tauri::Result<()> {
                 toggle_forward(app, fwd_id);
             } else if let Some(server_id) = id.strip_prefix("add:") {
                 show_window(app);
-                let _ = app.emit("navigate", serde_json::json!({ "view": "add-forward", "server_id": server_id }));
+                let _ = app.emit(
+                    "navigate",
+                    serde_json::json!({ "view": "add-forward", "server_id": server_id }),
+                );
             } else if id == "show" {
                 show_window(app);
             } else if id == "quit" {

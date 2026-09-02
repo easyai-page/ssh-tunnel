@@ -49,7 +49,10 @@ pub async fn start_ssh_server(opts: TestServerOpts) -> TestServerHandle {
         auth_rejection_time: Duration::ZERO,
         ..Default::default()
     });
-    let mut server = TestServer { opts, forwards: ForwardMap::default() };
+    let mut server = TestServer {
+        opts,
+        forwards: ForwardMap::default(),
+    };
     // run_on_socket 返回的 Future 借用 server 与 listener（非 'static），
     // 因此把二者移进 spawn 任务内部再调用；shutdown 句柄经 oneshot 传回
     let (handle_tx, handle_rx) = tokio::sync::oneshot::channel();
@@ -70,8 +73,14 @@ pub async fn start_ssh_server_on(addr: SocketAddr, opts: TestServerOpts) -> Test
         let mut listener = None;
         for _ in 0..20 {
             match TcpListener::bind(addr).await {
-                Ok(l) => { listener = Some(l); break; }
-                Err(e) => { last_err = Some(e); tokio::time::sleep(Duration::from_millis(100)).await; }
+                Ok(l) => {
+                    listener = Some(l);
+                    break;
+                }
+                Err(e) => {
+                    last_err = Some(e);
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
             }
         }
         listener.unwrap_or_else(|| panic!("绑定 {addr} 失败: {last_err:?}"))
@@ -82,7 +91,10 @@ pub async fn start_ssh_server_on(addr: SocketAddr, opts: TestServerOpts) -> Test
         auth_rejection_time: Duration::ZERO,
         ..Default::default()
     });
-    let mut server = TestServer { opts, forwards: ForwardMap::default() };
+    let mut server = TestServer {
+        opts,
+        forwards: ForwardMap::default(),
+    };
     // 同 start_ssh_server:run_on_socket 借用 server 与 listener（非 'static），
     // 二者移进 spawn 任务内部，shutdown 句柄经 oneshot 传回
     let (handle_tx, handle_rx) = tokio::sync::oneshot::channel();
@@ -111,7 +123,10 @@ pub async fn start_tcp_echo() -> SocketAddr {
 }
 
 fn reject() -> Auth {
-    Auth::Reject { proceed_with_methods: None, partial_success: false }
+    Auth::Reject {
+        proceed_with_methods: None,
+        partial_success: false,
+    }
 }
 
 struct TestHandler {
@@ -122,7 +137,10 @@ struct TestHandler {
 impl server::Server for TestServer {
     type Handler = TestHandler;
     fn new_client(&mut self, _peer: Option<SocketAddr>) -> TestHandler {
-        TestHandler { opts: self.opts.clone(), forwards: self.forwards.clone() }
+        TestHandler {
+            opts: self.opts.clone(),
+            forwards: self.forwards.clone(),
+        }
     }
 }
 
@@ -130,12 +148,20 @@ impl server::Handler for TestHandler {
     type Error = russh::Error;
 
     async fn auth_password(&mut self, _user: &str, password: &str) -> Result<Auth, Self::Error> {
-        Ok(if Some(password) == self.opts.password { Auth::Accept } else { reject() })
+        Ok(if Some(password) == self.opts.password {
+            Auth::Accept
+        } else {
+            reject()
+        })
     }
 
     async fn auth_publickey(&mut self, _user: &str, key: &PublicKey) -> Result<Auth, Self::Error> {
         let offered = key.to_openssh().unwrap_or_default();
-        Ok(if self.opts.accept_keys.iter().any(|k| k == &offered) { Auth::Accept } else { reject() })
+        Ok(if self.opts.accept_keys.iter().any(|k| k == &offered) {
+            Auth::Accept
+        } else {
+            reject()
+        })
     }
 
     // 收到 direct-tcpip 就桥接到真实目标（本测试进程内的 echo 端口）
@@ -199,7 +225,10 @@ impl server::Handler for TestHandler {
             }
         });
         // 记录 accept 任务,cancel_tcpip_forward 据此撤销监听
-        self.forwards.lock().await.insert((address.to_string(), assigned as u32), task);
+        self.forwards
+            .lock()
+            .await
+            .insert((address.to_string(), assigned as u32), task);
         Ok(true)
     }
 
@@ -210,7 +239,11 @@ impl server::Handler for TestHandler {
         port: u32,
         _session: &mut Session,
     ) -> Result<bool, Self::Error> {
-        let removed = self.forwards.lock().await.remove(&(address.to_string(), port));
+        let removed = self
+            .forwards
+            .lock()
+            .await
+            .remove(&(address.to_string(), port));
         match removed {
             Some(task) => {
                 task.abort();

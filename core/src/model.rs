@@ -50,7 +50,11 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { auto_reconnect: true, minimize_to_tray: true, launch_at_login: false }
+        Self {
+            auto_reconnect: true,
+            minimize_to_tray: true,
+            launch_at_login: false,
+        }
     }
 }
 
@@ -86,7 +90,9 @@ mod tests {
             host: "192.168.1.10".into(),
             port: 22,
             username: "root".into(),
-            auth: AuthMethod::KeyFile { path: "/home/u/.ssh/id_ed25519".into() },
+            auth: AuthMethod::KeyFile {
+                path: "/home/u/.ssh/id_ed25519".into(),
+            },
         };
         let json = serde_json::to_string(&s).unwrap();
         let back: Server = serde_json::from_str(&json).unwrap();
@@ -97,7 +103,10 @@ mod tests {
 
     #[test]
     fn forward_kind_snake_case() {
-        assert_eq!(serde_json::to_string(&ForwardKind::Dynamic).unwrap(), r#""dynamic""#);
+        assert_eq!(
+            serde_json::to_string(&ForwardKind::Dynamic).unwrap(),
+            r#""dynamic""#
+        );
     }
 
     #[test]

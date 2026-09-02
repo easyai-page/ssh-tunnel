@@ -47,7 +47,8 @@ pub fn run() {
             std::fs::create_dir_all(&dir)?;
             let store = ConfigStore::new(dir.join("config.json"));
             let known_hosts = Arc::new(Mutex::new(KnownHosts::new(dir.join("known_hosts"))));
-            let pending: Arc<Mutex<HashMap<String, oneshot::Sender<bool>>>> = Arc::new(Mutex::new(HashMap::new()));
+            let pending: Arc<Mutex<HashMap<String, oneshot::Sender<bool>>>> =
+                Arc::new(Mutex::new(HashMap::new()));
 
             // host key 决策回路:core 回调 → tauri event → 前端弹窗 → respond_host_key command。
             // pending map 与 AppState 共享同一个 Arc,respond_host_key 才能找到回调
@@ -78,7 +79,8 @@ pub fn run() {
             // 否则主线程直接调用会 panic("no reactor running");
             // setup 是同步上下文,此处 block_on 安全(不在 runtime worker 内)
             let (manager, settings) = tauri::async_runtime::block_on(async {
-                let manager = SshManager::new(store, Arc::new(KeyringStore::new()), known_hosts, decider)?;
+                let manager =
+                    SshManager::new(store, Arc::new(KeyringStore::new()), known_hosts, decider)?;
                 let settings = manager.settings().await;
                 Ok::<_, ssh_tunnel_core::CoreError>((manager, settings))
             })

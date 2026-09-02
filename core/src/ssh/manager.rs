@@ -43,11 +43,22 @@ impl SshManager {
                     Ok(ev) => {
                         let mut snap = snap.write().await;
                         match ev {
-                            TunnelEvent::ServerStatus { server_id, status, error } => {
-                                snap.servers.insert(server_id, ServerStatusEntry { status, error });
+                            TunnelEvent::ServerStatus {
+                                server_id,
+                                status,
+                                error,
+                            } => {
+                                snap.servers
+                                    .insert(server_id, ServerStatusEntry { status, error });
                             }
-                            TunnelEvent::ForwardStatus { forward_id, status, error, .. } => {
-                                snap.forwards.insert(forward_id, ForwardStatusEntry { status, error });
+                            TunnelEvent::ForwardStatus {
+                                forward_id,
+                                status,
+                                error,
+                                ..
+                            } => {
+                                snap.forwards
+                                    .insert(forward_id, ForwardStatusEntry { status, error });
                             }
                         }
                     }
@@ -152,7 +163,11 @@ impl SshManager {
             cfg.forwards.retain(|f| f.server_id != id);
             ids
         };
-        for kind in [SecretKind::Password, SecretKind::Key, SecretKind::KeyPassphrase] {
+        for kind in [
+            SecretKind::Password,
+            SecretKind::Key,
+            SecretKind::KeyPassphrase,
+        ] {
             let _ = self.secrets.delete(id, kind);
         }
         // 级联删除的转发不会再有事件覆盖其快照,必须一并清除,否则托盘/前端渲染幽灵条目
@@ -233,7 +248,9 @@ impl SshManager {
         let forward = self.forward_or_err(id).await?;
         let actors = self.actors.read().await;
         if let Some(actor) = actors.get(&forward.server_id) {
-            actor.send(ActorCommand::StopForward { forward_id: id.to_string() })?;
+            actor.send(ActorCommand::StopForward {
+                forward_id: id.to_string(),
+            })?;
         }
         Ok(())
     }

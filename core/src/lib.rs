@@ -1,12 +1,12 @@
-pub mod model;
-pub mod error;
 pub mod config;
-pub mod secrets;
+pub mod error;
+pub mod forward;
 pub mod known_hosts;
+pub mod model;
 pub mod paths;
+pub mod secrets;
 pub mod socks5;
 pub mod ssh;
-pub mod forward;
 
 pub use error::CoreError;
 pub use model::*;

@@ -16,10 +16,17 @@ pub async fn start_remote_forward(
 ) -> Result<u32, CoreError> {
     let target = RemoteTarget {
         forward_id: forward.id.clone(),
-        target_host: forward.target_host.clone().unwrap_or_else(|| "127.0.0.1".into()),
-        target_port: forward.target_port.ok_or_else(|| CoreError::Other("远程转发缺少目标端口".into()))?,
+        target_host: forward
+            .target_host
+            .clone()
+            .unwrap_or_else(|| "127.0.0.1".into()),
+        target_port: forward
+            .target_port
+            .ok_or_else(|| CoreError::Other("远程转发缺少目标端口".into()))?,
     };
-    let assigned = handle.tcpip_forward(forward.bind_addr.clone(), forward.bind_port as u32).await?;
+    let assigned = handle
+        .tcpip_forward(forward.bind_addr.clone(), forward.bind_port as u32)
+        .await?;
     remote_forwards.write().await.insert(assigned, target);
     Ok(assigned)
 }
@@ -31,10 +38,16 @@ pub async fn stop_remote_forward(
     handle: &client::Handle<ClientHandler>,
     remote_forwards: &Arc<RwLock<HashMap<u32, RemoteTarget>>>,
 ) -> Result<(), CoreError> {
-    if let Err(e) = handle.cancel_tcpip_forward(forward.bind_addr.clone(), forward.bind_port as u32).await {
+    if let Err(e) = handle
+        .cancel_tcpip_forward(forward.bind_addr.clone(), forward.bind_port as u32)
+        .await
+    {
         tracing::warn!("cancel_tcpip_forward 失败(仍清理本地映射): {e}");
     }
     // 按 forward_id 清理,兼容 bind_port=0(分配端口)的情况
-    remote_forwards.write().await.retain(|_, t| t.forward_id != forward.id);
+    remote_forwards
+        .write()
+        .await
+        .retain(|_, t| t.forward_id != forward.id);
     Ok(())
 }

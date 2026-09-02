@@ -28,13 +28,19 @@ pub enum CoreError {
 }
 
 impl From<russh::Error> for CoreError {
-    fn from(e: russh::Error) -> Self { CoreError::Ssh(e.to_string()) }
+    fn from(e: russh::Error) -> Self {
+        CoreError::Ssh(e.to_string())
+    }
 }
 
 impl From<russh::keys::Error> for CoreError {
-    fn from(e: russh::keys::Error) -> Self { CoreError::Key(e.to_string()) }
+    fn from(e: russh::keys::Error) -> Self {
+        CoreError::Key(e.to_string())
+    }
 }
 
 impl From<keyring::Error> for CoreError {
-    fn from(e: keyring::Error) -> Self { CoreError::Keyring(e.to_string()) }
+    fn from(e: keyring::Error) -> Self {
+        CoreError::Keyring(e.to_string())
+    }
 }

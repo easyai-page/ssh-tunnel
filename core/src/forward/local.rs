@@ -23,7 +23,9 @@ pub fn spawn_local_forward(
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
         loop {
-            let Ok((mut socket, _)) = listener.accept().await else { break };
+            let Ok((mut socket, _)) = listener.accept().await else {
+                break;
+            };
             let opener = opener.clone();
             let (host, port) = (target_host.clone(), target_port as u32);
             tokio::spawn(async move {

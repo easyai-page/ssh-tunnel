@@ -18,7 +18,9 @@ pub async fn socks5_accept_target(stream: &mut TcpStream) -> Result<(String, u16
     stream.read_exact(&mut req).await?;
     if req[0] != 0x05 || req[1] != 0x01 {
         // REP=0x07: 命令不支持
-        stream.write_all(&[0x05, 0x07, 0x00, 0x01, 0, 0, 0, 0, 0, 0]).await?;
+        stream
+            .write_all(&[0x05, 0x07, 0x00, 0x01, 0, 0, 0, 0, 0, 0])
+            .await?;
         return Err(CoreError::Other("SOCKS5 仅支持 CONNECT".into()));
     }
     let host = match req[3] {
@@ -48,6 +50,8 @@ pub async fn socks5_accept_target(stream: &mut TcpStream) -> Result<(String, u16
 
 pub async fn socks5_reply(stream: &mut TcpStream, success: bool) -> Result<(), CoreError> {
     let rep = if success { 0x00 } else { 0x05 };
-    stream.write_all(&[0x05, rep, 0x00, 0x01, 0, 0, 0, 0, 0, 0]).await?;
+    stream
+        .write_all(&[0x05, rep, 0x00, 0x01, 0, 0, 0, 0, 0, 0])
+        .await?;
     Ok(())
 }

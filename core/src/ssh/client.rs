@@ -52,10 +52,15 @@ impl ChannelOpener {
     pub async fn open(&self, host: &str, port: u32) -> Result<Channel<Msg>, CoreError> {
         let (tx, rx) = oneshot::channel();
         self.tx
-            .send(OpenChannelRequest { target_host: host.to_string(), target_port: port, respond: tx })
+            .send(OpenChannelRequest {
+                target_host: host.to_string(),
+                target_port: port,
+                respond: tx,
+            })
             .await
             .map_err(|_| CoreError::Other("连接已断开".into()))?;
-        rx.await.map_err(|_| CoreError::Other("连接已断开".into()))?
+        rx.await
+            .map_err(|_| CoreError::Other("连接已断开".into()))?
     }
 }
 
@@ -71,10 +76,17 @@ pub struct ClientHandler {
 impl client::Handler for ClientHandler {
     type Error = CoreError;
 
-    async fn check_server_key(&mut self, key: &PublicKeyOrCertificate) -> Result<bool, Self::Error> {
+    async fn check_server_key(
+        &mut self,
+        key: &PublicKeyOrCertificate,
+    ) -> Result<bool, Self::Error> {
         let pubkey = key.public_key();
         let fingerprint = pubkey.fingerprint(HashAlg::Sha256).to_string();
-        let status = self.known_hosts.lock().await.check(&self.host, self.port, &pubkey)?;
+        let status = self
+            .known_hosts
+            .lock()
+            .await
+            .check(&self.host, self.port, &pubkey)?;
         match status {
             HostKeyStatus::Trusted => Ok(true),
             HostKeyStatus::Unknown | HostKeyStatus::Changed => {
@@ -90,7 +102,10 @@ impl client::Handler for ClientHandler {
                 if !trusted {
                     return Err(CoreError::HostKeyRejected);
                 }
-                self.known_hosts.lock().await.record(&self.host, self.port, &pubkey)?;
+                self.known_hosts
+                    .lock()
+                    .await
+                    .record(&self.host, self.port, &pubkey)?;
                 Ok(true)
             }
         }
@@ -107,12 +122,19 @@ impl client::Handler for ClientHandler {
         reply: ChannelOpenHandle,
         _session: &mut Session,
     ) -> Result<(), Self::Error> {
-        let target = self.remote_forwards.read().await.get(&connected_port).cloned();
+        let target = self
+            .remote_forwards
+            .read()
+            .await
+            .get(&connected_port)
+            .cloned();
         match target {
             Some(t) => {
                 reply.accept().await;
                 tokio::spawn(async move {
-                    match tokio::net::TcpStream::connect((t.target_host.as_str(), t.target_port)).await {
+                    match tokio::net::TcpStream::connect((t.target_host.as_str(), t.target_port))
+                        .await
+                    {
                         Ok(mut local) => {
                             let mut stream = channel.into_stream();
                             let _ = tokio::io::copy_bidirectional(&mut stream, &mut local).await;
@@ -121,12 +143,19 @@ impl client::Handler for ClientHandler {
                     }
                 });
             }
-            None => reply.reject(ChannelOpenFailure::AdministrativelyProhibited).await,
+            None => {
+                reply
+                    .reject(ChannelOpenFailure::AdministrativelyProhibited)
+                    .await
+            }
         }
         Ok(())
     }
 
-    async fn disconnected(&mut self, reason: client::DisconnectReason<Self::Error>) -> Result<(), Self::Error> {
+    async fn disconnected(
+        &mut self,
+        reason: client::DisconnectReason<Self::Error>,
+    ) -> Result<(), Self::Error> {
         let msg = match reason {
             client::DisconnectReason::ReceivedDisconnect(info) => info.message,
             client::DisconnectReason::Error(e) => e.to_string(),
@@ -168,13 +197,18 @@ pub async fn connect(
     // 连接与认证共享同一个 10s 上限:对端不回认证响应时 authenticate 一样会挂起,
     // 只包住 client::connect 会让 actor 的 select! 命令臂永久卡死
     let handle = tokio::time::timeout(Duration::from_secs(10), async {
-        let mut handle = client::connect(config, (server.host.as_str(), server.port), handler).await?;
+        let mut handle =
+            client::connect(config, (server.host.as_str(), server.port), handler).await?;
         authenticate(&mut handle, server, secrets).await?;
         Ok::<_, CoreError>(handle)
     })
     .await
     .map_err(|_| CoreError::Ssh("连接或认证超时(10s)".into()))??;
-    Ok(Connection { handle, disconnect_rx, remote_forwards })
+    Ok(Connection {
+        handle,
+        disconnect_rx,
+        remote_forwards,
+    })
 }
 
 /// SecretStore 是同步 trait，KeyringStore 底层是阻塞 IO（dbus/Credential Manager），
@@ -201,7 +235,9 @@ async fn authenticate(
             let password = secret_get(&secrets, &server.id, SecretKind::Password)
                 .await?
                 .ok_or_else(|| CoreError::Auth("未保存密码".into()))?;
-            let result = handle.authenticate_password(&server.username, password).await?;
+            let result = handle
+                .authenticate_password(&server.username, password)
+                .await?;
             ensure_success(result)
         }
         AuthMethod::KeyFile { path } => {
@@ -228,7 +264,12 @@ async fn auth_with_key(
     key: PrivateKey,
 ) -> Result<(), CoreError> {
     // RSA 密钥需要服务器支持 sha2；其他类型此值被 russh 忽略
-    let hash_alg = handle.best_supported_rsa_hash().await.ok().flatten().flatten();
+    let hash_alg = handle
+        .best_supported_rsa_hash()
+        .await
+        .ok()
+        .flatten()
+        .flatten();
     let key = PrivateKeyWithHashAlg::new(Arc::new(key), hash_alg);
     let result = handle.authenticate_publickey(username, key).await?;
     ensure_success(result)
@@ -237,6 +278,8 @@ async fn auth_with_key(
 fn ensure_success(result: russh::client::AuthResult) -> Result<(), CoreError> {
     match result {
         russh::client::AuthResult::Success => Ok(()),
-        russh::client::AuthResult::Failure { .. } => Err(CoreError::Auth("用户名或凭据不正确".into())),
+        russh::client::AuthResult::Failure { .. } => {
+            Err(CoreError::Auth("用户名或凭据不正确".into()))
+        }
     }
 }
