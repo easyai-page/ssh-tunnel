@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["core"]  # Task 12 会追加 "src-tauri"
+members = ["core", "src-tauri"]
 
 [workspace.package]
 edition = "2021"

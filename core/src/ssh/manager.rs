@@ -64,6 +64,12 @@ impl SshManager {
         self.events.subscribe()
     }
 
+    /// 暴露钥匙串访问:Tauri 壳的 upsert_server 需要在认证方式变更时
+    /// 清理/写入凭据(凭据不属于配置,manager 不代管这部分写路径)
+    pub fn secrets(&self) -> &Arc<dyn SecretStore> {
+        &self.secrets
+    }
+
     pub async fn snapshot(&self) -> StatusSnapshot {
         self.snapshot.read().await.clone()
     }
