@@ -266,6 +266,13 @@ impl Actor {
     }
 
     async fn start_forward(&mut self, mut forward: Forward) {
+        // 幂等守卫:重复 StartForward 若再次走下面流程,新 listener 绑定同端口必失败,
+        // 且旧条目被 insert 覆盖后其 listener 任务泄漏(不再有人持有句柄,端口占到死)。
+        // 条目存在即意味着 Running,重发一次状态让调用方收敛即可
+        if self.forwards.contains_key(&forward.id) {
+            self.emit_forward(&forward.id, ForwardStatus::Running, None);
+            return;
+        }
         self.emit_forward(&forward.id, ForwardStatus::Starting, None);
         // 联动规则:未连接先连接
         if self.conn.is_none() {
