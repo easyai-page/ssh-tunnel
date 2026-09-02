@@ -108,7 +108,7 @@ pub fn refresh_tray(app: &AppHandle) {
 }
 
 pub fn build_tray(app: &mut tauri::App) -> tauri::Result<()> {
-    let menu = build_menu(&app.handle())?;
+    let menu = build_menu(app.handle())?;
     TrayIconBuilder::with_id(TRAY_ID)
         .tooltip("SSH Tunnel")
         .icon(circle_icon(GREY))

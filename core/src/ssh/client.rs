@@ -167,7 +167,7 @@ pub async fn connect(
     };
     // 连接与认证共享同一个 10s 上限:对端不回认证响应时 authenticate 一样会挂起,
     // 只包住 client::connect 会让 actor 的 select! 命令臂永久卡死
-    let mut handle = tokio::time::timeout(Duration::from_secs(10), async {
+    let handle = tokio::time::timeout(Duration::from_secs(10), async {
         let mut handle = client::connect(config, (server.host.as_str(), server.port), handler).await?;
         authenticate(&mut handle, server, secrets).await?;
         Ok::<_, CoreError>(handle)

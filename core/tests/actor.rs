@@ -157,7 +157,7 @@ async fn no_reconnect_when_disabled() {
     // auto_reconnect=false:应停在某终态,且 3 秒内不出现 Connected
     let mut saw_connected = false;
     let deadline = std::time::Instant::now() + Duration::from_secs(3);
-    while let Ok(Ok(ev)) = tokio::time::timeout(deadline - std::time::Instant::now(), rx.recv()).await.map_err(|_| ()).map(|r| r) {
+    while let Ok(Ok(ev)) = tokio::time::timeout(deadline - std::time::Instant::now(), rx.recv()).await.map_err(|_| ()) {
         if let TunnelEvent::ServerStatus { status: ServerStatus::Connected, .. } = ev { saw_connected = true; }
     }
     assert!(!saw_connected);
@@ -204,7 +204,7 @@ async fn start_forward_during_reconnecting_connects_once() {
     // 不得再出现 Connecting/Connected,否则说明旧定时器二次连接、替换了健康连接
     let mut second_connect = false;
     let deadline = std::time::Instant::now() + Duration::from_millis(2500);
-    while let Ok(Ok(ev)) = tokio::time::timeout(deadline - std::time::Instant::now(), rx.recv()).await.map_err(|_| ()).map(|r| r) {
+    while let Ok(Ok(ev)) = tokio::time::timeout(deadline - std::time::Instant::now(), rx.recv()).await.map_err(|_| ()) {
         if let TunnelEvent::ServerStatus { status: ServerStatus::Connecting | ServerStatus::Connected, .. } = ev {
             second_connect = true;
         }
