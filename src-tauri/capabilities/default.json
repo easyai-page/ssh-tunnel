@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "main window",
   "windows": ["main"],
-  "permissions": ["core:default", "core:event:default", "core:window:default", "core:tray:default", "core:menu:default", "autostart:default"]
+  "permissions": ["core:default", "core:event:default", "core:window:default", "core:tray:default", "core:menu:default", "autostart:default", "dialog:allow-open"]
 }

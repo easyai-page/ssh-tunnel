@@ -84,9 +84,12 @@ defineExpose({
         :class="['server-item', { active: s.id === servers.selectedId }]" @click="servers.select(s.id)">
         <div class="server-name">{{ s.name }}</div>
         <div class="server-sub">{{ s.username }}@{{ s.host }}:{{ s.port }}</div>
-        <div class="server-status" :class="servers.serverStatus[s.id]?.status">
-          {{ statusText(servers.serverStatus[s.id]?.status) }}
-        </div>
+        <el-tooltip :content="servers.serverStatus[s.id]?.error ?? ''"
+          :disabled="!servers.serverStatus[s.id]?.error">
+          <div class="server-status" :class="servers.serverStatus[s.id]?.status">
+            {{ statusText(servers.serverStatus[s.id]?.status) }}
+          </div>
+        </el-tooltip>
         <div class="server-actions">
           <el-button v-if="canConnect(s.id)" size="small" text type="primary"
             @click.stop="servers.connect(s.id)">连接</el-button>

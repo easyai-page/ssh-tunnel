@@ -10,7 +10,7 @@ pub struct Server {
     pub auth: AuthMethod,
 }
 
-// 敏感值（密码/密钥内容/passphrase）不在此处，全部走钥匙串（见 secrets.rs）
+// 敏感值不在此处:密码/passphrase 走系统钥匙串,私钥内容落盘 keys/ 目录(见 secrets.rs)
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AuthMethod {

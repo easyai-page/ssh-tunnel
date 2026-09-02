@@ -9,7 +9,7 @@ use ssh_tunnel_core::config::ConfigStore;
 use ssh_tunnel_core::known_hosts::KnownHosts;
 use ssh_tunnel_core::model::{Forward, Server, Settings};
 use ssh_tunnel_core::paths;
-use ssh_tunnel_core::secrets::KeyringStore;
+use ssh_tunnel_core::secrets::HybridSecretStore;
 use ssh_tunnel_core::ssh::client::{HostKeyDecider, HostKeyInfo};
 use ssh_tunnel_core::ssh::manager::SshManager;
 use ssh_tunnel_core::ssh::StatusSnapshot;
@@ -45,6 +45,7 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             Some(vec![]),
         ))
+        .plugin(tauri_plugin_dialog::init())
         .setup(move |app| {
             let dir = paths::config_dir();
             std::fs::create_dir_all(&dir)?;
@@ -82,14 +83,18 @@ pub fn run() {
             // 否则主线程直接调用会 panic("no reactor running");
             // setup 是同步上下文,此处 block_on 安全(不在 runtime worker 内)
             let (manager, settings) = tauri::async_runtime::block_on(async {
-                let manager =
-                    SshManager::new(store, Arc::new(KeyringStore::new()), known_hosts, decider)?;
+                let manager = SshManager::new(
+                    store,
+                    // 私钥内容落盘 <配置目录>/keys/,密码与 passphrase 走系统钥匙串
+                    Arc::new(HybridSecretStore::new(dir.join("keys"))),
+                    known_hosts,
+                    decider,
+                )?;
                 let settings = manager.settings().await;
                 Ok::<_, ssh_tunnel_core::CoreError>((manager, settings))
             })
             .map_err(|e| format!("加载配置失败: {e}"))?;
             let manager = Arc::new(manager);
-
             // 挂上 AppHandle 后新日志实时推给前端(挂载前的由 get_logs 首屏补齐)
             logs.attach_app(app.handle().clone());
 

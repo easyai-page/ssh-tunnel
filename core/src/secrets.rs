@@ -1,5 +1,6 @@
 use crate::CoreError;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Mutex;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -19,7 +20,7 @@ pub fn secret_account(server_id: &str, kind: SecretKind) -> String {
     format!("{server_id}:{suffix}")
 }
 
-/// 同步 trait：keyring 本身是阻塞 IO，调用方负责 spawn_blocking
+/// 同步 trait：底层是阻塞 IO（keyring/文件），调用方负责 spawn_blocking
 pub trait SecretStore: Send + Sync {
     fn get(&self, server_id: &str, kind: SecretKind) -> Result<Option<String>, CoreError>;
     fn set(&self, server_id: &str, kind: SecretKind, value: &str) -> Result<(), CoreError>;
@@ -59,6 +60,80 @@ impl SecretStore for KeyringStore {
         match Self::entry(server_id, kind)?.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
             Err(e) => Err(e.into()),
+        }
+    }
+}
+
+/// 生产环境存储：密码/密钥 passphrase（短，几十字节）走系统钥匙串；
+/// 粘贴的私钥内容落盘到 <配置目录>/keys/<server_id>。
+/// 原因：Windows 凭据管理器单条 blob 上限 2560 字节（UTF-16 存，约 1280 字符），
+/// RSA 私钥轻松超限、写钥匙串直接报错；文件存储无此限制
+pub struct HybridSecretStore {
+    keyring: KeyringStore,
+    keys_dir: PathBuf,
+}
+
+impl HybridSecretStore {
+    pub fn new(keys_dir: PathBuf) -> Self {
+        Self {
+            keyring: KeyringStore::new(),
+            keys_dir,
+        }
+    }
+
+    fn key_path(&self, server_id: &str) -> PathBuf {
+        self.keys_dir.join(server_id)
+    }
+
+    fn file_get(&self, server_id: &str) -> Result<Option<String>, CoreError> {
+        match std::fs::read_to_string(self.key_path(server_id)) {
+            Ok(v) => Ok(Some(v)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    fn file_set(&self, server_id: &str, value: &str) -> Result<(), CoreError> {
+        std::fs::create_dir_all(&self.keys_dir)?;
+        let path = self.key_path(server_id);
+        // 与 ConfigStore 同规约：先写临时文件再 rename，避免半截文件
+        let tmp = path.with_extension("tmp");
+        std::fs::write(&tmp, value)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600))?;
+        }
+        std::fs::rename(&tmp, &path)?;
+        Ok(())
+    }
+
+    fn file_delete(&self, server_id: &str) -> Result<(), CoreError> {
+        match std::fs::remove_file(self.key_path(server_id)) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(e.into()),
+        }
+    }
+}
+
+impl SecretStore for HybridSecretStore {
+    fn get(&self, server_id: &str, kind: SecretKind) -> Result<Option<String>, CoreError> {
+        match kind {
+            SecretKind::Key => self.file_get(server_id),
+            _ => self.keyring.get(server_id, kind),
+        }
+    }
+    fn set(&self, server_id: &str, kind: SecretKind, value: &str) -> Result<(), CoreError> {
+        match kind {
+            SecretKind::Key => self.file_set(server_id, value),
+            _ => self.keyring.set(server_id, kind, value),
+        }
+    }
+    fn delete(&self, server_id: &str, kind: SecretKind) -> Result<(), CoreError> {
+        match kind {
+            SecretKind::Key => self.file_delete(server_id),
+            _ => self.keyring.delete(server_id, kind),
         }
     }
 }
@@ -112,6 +187,44 @@ mod tests {
             secret_account("s1", SecretKind::KeyPassphrase),
             "s1:key_passphrase"
         );
+    }
+
+    #[test]
+    fn hybrid_store_key_kind_uses_file() {
+        // 只测 SecretKind::Key(走文件);其余 kind 会碰真实 keyring,不进单元测试
+        let dir = tempfile::tempdir().unwrap();
+        let store = HybridSecretStore::new(dir.path().join("keys"));
+        assert_eq!(store.get("s1", SecretKind::Key).unwrap(), None);
+        let pem = "-----BEGIN OPENSSH PRIVATE KEY-----\nabc\n-----END OPENSSH PRIVATE KEY-----\n";
+        store.set("s1", SecretKind::Key, pem).unwrap();
+        assert_eq!(
+            store.get("s1", SecretKind::Key).unwrap().as_deref(),
+            Some(pem)
+        );
+        // 覆盖写与删除
+        store.set("s1", SecretKind::Key, "k2").unwrap();
+        assert_eq!(
+            store.get("s1", SecretKind::Key).unwrap().as_deref(),
+            Some("k2")
+        );
+        store.delete("s1", SecretKind::Key).unwrap();
+        assert_eq!(store.get("s1", SecretKind::Key).unwrap(), None);
+        // 删除不存在的条目不算错误
+        store.delete("s1", SecretKind::Key).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hybrid_store_key_file_is_0600() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let store = HybridSecretStore::new(dir.path().join("keys"));
+        store.set("s1", SecretKind::Key, "k").unwrap();
+        let mode = std::fs::metadata(dir.path().join("keys/s1"))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o600);
     }
 
     #[test]

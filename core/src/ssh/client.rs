@@ -194,16 +194,18 @@ pub async fn connect(
         remote_forwards: remote_forwards.clone(),
         disconnect_tx,
     };
-    // 连接与认证共享同一个 10s 上限:对端不回认证响应时 authenticate 一样会挂起,
-    // 只包住 client::connect 会让 actor 的 select! 命令臂永久卡死
-    let handle = tokio::time::timeout(Duration::from_secs(10), async {
+    // 连接与认证共享同一个 60s 上限:对端不回认证响应时 authenticate 一样会挂起,
+    // 只包住 client::connect 会让 actor 的 select! 命令臂永久卡死。
+    // 预算必须覆盖首连的指纹确认弹窗(用户阅读+点击通常远超 10s),
+    // 否则用户还没点完就超时,陷入「超时 → 重连 → 再弹窗」的死循环
+    let handle = tokio::time::timeout(Duration::from_secs(60), async {
         let mut handle =
             client::connect(config, (server.host.as_str(), server.port), handler).await?;
         authenticate(&mut handle, server, secrets).await?;
         Ok::<_, CoreError>(handle)
     })
     .await
-    .map_err(|_| CoreError::Ssh("连接或认证超时(10s)".into()))??;
+    .map_err(|_| CoreError::Ssh("连接或认证超时(60s)".into()))??;
     Ok(Connection {
         handle,
         disconnect_rx,
@@ -211,7 +213,7 @@ pub async fn connect(
     })
 }
 
-/// SecretStore 是同步 trait，KeyringStore 底层是阻塞 IO（dbus/Credential Manager），
+/// SecretStore 是同步 trait，底层是阻塞 IO（keyring/文件读写），
 /// 统一走 spawn_blocking，避免阻塞 tokio worker
 async fn secret_get(
     secrets: &Arc<dyn SecretStore>,
@@ -223,6 +225,22 @@ async fn secret_get(
     tokio::task::spawn_blocking(move || secrets.get(&id, kind))
         .await
         .map_err(|e| CoreError::Other(e.to_string()))?
+}
+
+/// 展开路径开头的 `~/`:load_secret_key 直接走文件系统,不做 shell 展开,
+/// 而前端占位符引导用户写 ~/.ssh/...,不展开在 Windows 上必然读不到文件
+fn expand_tilde(path: &str) -> String {
+    let home = std::env::var("HOME")
+        .ok()
+        .filter(|h| !h.is_empty())
+        .or_else(|| std::env::var("USERPROFILE").ok().filter(|h| !h.is_empty()));
+    match home {
+        Some(h) if path == "~" => h,
+        Some(h) if path.starts_with("~/") || path.starts_with("~\\") => {
+            format!("{h}{}", &path[1..])
+        }
+        _ => path.to_string(),
+    }
 }
 
 async fn authenticate(
@@ -242,7 +260,8 @@ async fn authenticate(
         }
         AuthMethod::KeyFile { path } => {
             let pass = secret_get(&secrets, &server.id, SecretKind::KeyPassphrase).await?;
-            let key = russh::keys::load_secret_key(path, pass.as_deref())
+            let path = expand_tilde(path);
+            let key = russh::keys::load_secret_key(&path, pass.as_deref())
                 .map_err(|e| CoreError::Key(format!("读取密钥文件 {path} 失败: {e}")))?;
             auth_with_key(handle, &server.username, key).await
         }
@@ -281,5 +300,29 @@ fn ensure_success(result: russh::client::AuthResult) -> Result<(), CoreError> {
         russh::client::AuthResult::Failure { .. } => {
             Err(CoreError::Auth("用户名或凭据不正确".into()))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::expand_tilde;
+
+    #[test]
+    fn tilde_expands_to_home() {
+        let home = std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .expect("测试环境应有 HOME 或 USERPROFILE");
+        assert_eq!(expand_tilde("~"), home);
+        assert_eq!(expand_tilde("~/id_ed25519"), format!("{home}/id_ed25519"));
+    }
+
+    #[test]
+    fn non_tilde_path_unchanged() {
+        assert_eq!(expand_tilde("/etc/keys/id_rsa"), "/etc/keys/id_rsa");
+        assert_eq!(expand_tilde("~other/x"), "~other/x");
+        assert_eq!(
+            expand_tilde("C:\\Users\\u\\.ssh\\id_rsa"),
+            "C:\\Users\\u\\.ssh\\id_rsa"
+        );
     }
 }

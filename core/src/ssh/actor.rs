@@ -253,6 +253,8 @@ impl Actor {
                 Ok(())
             }
             Err(e) => {
+                // 失败必须落日志:此前错误只发前端,日志文件为空时完全无法事后定位
+                tracing::warn!("连接 {}:{} 失败: {e}", self.server.host, self.server.port);
                 self.emit_server(ServerStatus::Error, Some(e.to_string()));
                 Err(e)
             }

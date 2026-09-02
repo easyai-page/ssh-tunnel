@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { reactive, ref, watch } from 'vue'
+import { open } from '@tauri-apps/plugin-dialog'
 import type { Server, UpsertServerInput } from '../types'
 
 const props = defineProps<{ modelValue: boolean; server: Server | null }>()
@@ -34,6 +35,12 @@ watch(
   },
   { immediate: true },
 )
+
+// 打开系统文件选择框挑选私钥;取消时返回 null,不动现有值
+async function pickKeyFile() {
+  const selected = await open({ multiple: false, directory: false })
+  if (typeof selected === 'string') keyPath.value = selected
+}
 
 function submit() {
   if (!form.name || !form.host || !form.username) return
@@ -84,7 +91,9 @@ function submit() {
               :placeholder="server ? '留空保持不变' : '登录密码'" />
           </el-tab-pane>
           <el-tab-pane label="密钥文件" name="key_file">
-            <el-input v-model="keyPath" placeholder="如 ~/.ssh/id_ed25519" style="margin-bottom: 8px" />
+            <el-input v-model="keyPath" placeholder="如 ~/.ssh/id_ed25519" style="margin-bottom: 8px">
+              <template #append><el-button @click="pickKeyFile">浏览</el-button></template>
+            </el-input>
             <el-input v-model="keyPassphrase" type="password" show-password placeholder="密钥密码(如有,留空保持不变)" />
           </el-tab-pane>
           <el-tab-pane label="粘贴密钥" name="key_data">
