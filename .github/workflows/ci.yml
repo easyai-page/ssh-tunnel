@@ -78,7 +78,13 @@ jobs:
 
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
+          # tauri-action 不会自己认 GITHUB_REF 的 tag,必须显式传;非 tag 构建传空串即只编译不发版
+          tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+          releaseName: ssh-tunnel v__VERSION__
+          releaseBody: See the assets to download this version and install.
           args: --target ${{ matrix.target }}
 
       # 本仓库是 cargo workspace,target 目录在工作区根而非 src-tauri 下
