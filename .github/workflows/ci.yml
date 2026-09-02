@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # 快速失败的测试阶段:不过就不浪费构建机的钱
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Frontend tests
+        run: pnpm test
+      - name: Frontend type check
+        run: pnpm type-check
+      - name: Rust core tests
+        run: cargo test -p ssh-tunnel-core
+
+  build:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: macos-14, target: aarch64-apple-darwin }
+          - { platform: macos-13, target: x86_64-apple-darwin }
+          - { platform: windows-latest, target: x86_64-pc-windows-msvc }
+          - { platform: windows-11-arm, target: aarch64-pc-windows-msvc }
+          - { platform: ubuntu-22.04, target: x86_64-unknown-linux-gnu }
+          - { platform: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu }
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Tauri 壳依赖 webkitgtk,只有 Linux 需要
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        with:
+          args: --target ${{ matrix.target }}
+
+      # 原生编译时产物在 target/release/bundle,显式 target 时在 target/<target>/release/bundle,两个都收
+      - name: Upload bundles
+        uses: actions/upload-artifact@v4
+        with:
+          name: ssh-tunnel-${{ matrix.target }}
+          path: |
+            src-tauri/target/release/bundle/**
+            src-tauri/target/${{ matrix.target }}/release/bundle/**
+          if-no-files-found: error
