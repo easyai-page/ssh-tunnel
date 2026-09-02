@@ -13,7 +13,7 @@ use ssh_tunnel_core::ssh::StatusSnapshot;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use tauri::{Emitter, Manager};
-use tokio::sync::{oneshot, Mutex};
+use tokio::sync::{broadcast, oneshot, Mutex};
 
 /// 托盘的同步数据源:托盘菜单构建发生在任意回调上下文,
 /// 不能 await(在 runtime 线程里 block_on 会 panic),故用 RwLock 缓存,
@@ -102,10 +102,18 @@ pub fn run() {
             tauri::async_runtime::spawn(async move {
                 tray::refresh_cache(&app_handle).await;
                 tray::refresh_tray(&app_handle);
-                while let Ok(ev) = rx.recv().await {
-                    let _ = app_handle.emit("tunnel-event", &ev);
-                    tray::refresh_cache(&app_handle).await;
-                    tray::refresh_tray(&app_handle);
+                // 事件突发时广播通道可能滞后:Lagged 只是丢帧(快照类事件天然幂等,
+                // 下一帧会覆盖),while-let 写法会让任务静默退出,前端与托盘从此冻结
+                loop {
+                    match rx.recv().await {
+                        Ok(ev) => {
+                            let _ = app_handle.emit("tunnel-event", &ev);
+                            tray::refresh_cache(&app_handle).await;
+                            tray::refresh_tray(&app_handle);
+                        }
+                        Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                        Err(broadcast::error::RecvError::Closed) => break,
+                    }
                 }
             });
 
