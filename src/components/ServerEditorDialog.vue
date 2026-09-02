@@ -37,6 +37,8 @@ watch(
 
 function submit() {
   if (!form.name || !form.host || !form.username) return
+  // 新建且选密码认证时密码必填:留空保存后连接必然失败(「未保存密码」),拦在提交前
+  if (!props.server && authType.value === 'password' && !password.value) return
   const server: Server = {
     id: props.server?.id ?? '',
     name: form.name,
@@ -58,6 +60,10 @@ function submit() {
     key_passphrase: keyPassphrase.value || null,
   })
   // 不在此处关对话框:保存是否成功只有父组件知道,由父组件在成功后关闭
+  // 敏感值用后即清,不留组件状态;保存失败重试需重新输入,是有意的安全取舍
+  password.value = ''
+  keyData.value = ''
+  keyPassphrase.value = ''
 }
 </script>
 
