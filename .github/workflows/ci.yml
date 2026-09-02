@@ -3,8 +3,14 @@ name: CI
 on:
   push:
     branches: [master]
+    # v* tag 触发发版:tauri-action 会自动创建 Release 并挂上各平台安装包
+    tags: ["v*"]
   pull_request:
   workflow_dispatch:
+
+# tauri-action 创建 Release 需要写权限
+permissions:
+  contents: write
 
 env:
   CARGO_TERM_COLOR: always

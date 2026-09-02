@@ -49,5 +49,6 @@ Tauri 壳（src-tauri）编译需要系统依赖：`sudo apt install libwebkit2g
 桌面应用，不涉及局域网测试服务器部署。打包走 GitHub Actions（`.github/workflows/ci.yml`，仓库 `easyai-page/ssh-tunnel`）：
 - `test` 阶段：前端 Vitest + vue-tsc、后端 `cargo test -p ssh-tunnel-core`
 - `build` 阶段：六平台 Tauri 打包（Windows/Linux/macOS 各 x86_64 + arm64），产物在各 job 的 Artifacts 里
-- 触发：push 到 master、PR、手动 `workflow_dispatch`
+- 触发：push 到 master、PR、手动 `workflow_dispatch`（这三种只编译验证，产物在 Artifacts）
+- 发版：push `v*` tag（如 `git tag v0.1.0 && git push origin v0.1.0`），tauri-action 自动创建 GitHub Release 并挂六平台安装包
 - 注意：Windows/Linux 的 arm64 免费 runner 仅公开仓库可用，仓库需保持 public
