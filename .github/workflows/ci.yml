@@ -16,7 +16,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # 快速失败的测试阶段:不过就不浪费构建机的钱
+  # 测试阶段:push/PR/tag 都跑;不过就不浪费构建机的钱
   test:
     runs-on: ubuntu-latest
     steps:
@@ -42,10 +42,19 @@ jobs:
         run: pnpm test
       - name: Frontend type check
         run: pnpm type-check
+      # 打包可行性检查:产物弃置,只为拦住「测试能过但 vite 构建挂掉」的情况
+      - name: Frontend bundle check
+        run: pnpm build
+      - name: Rust fmt check
+        run: cargo fmt --check
+      - name: Rust clippy
+        run: cargo clippy -p ssh-tunnel-core -- -D warnings
       - name: Rust core tests
         run: cargo test -p ssh-tunnel-core
 
+  # 只有 v* tag 才编译六平台安装包并发版;普通 push/PR 只跑到测试阶段为止
   build:
+    if: startsWith(github.ref, 'refs/tags/')
     needs: test
     strategy:
       fail-fast: false
@@ -87,8 +96,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          # tauri-action 不会自己认 GITHUB_REF 的 tag,必须显式传;非 tag 构建传空串即只编译不发版
-          tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+          # build job 已被 if 限定只在 tag 上跑,tagName 必然非空
+          tagName: ${{ github.ref_name }}
           releaseName: ssh-tunnel v__VERSION__
           releaseBody: See the assets to download this version and install.
           args: --target ${{ matrix.target }}
