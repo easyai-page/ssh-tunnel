@@ -15,8 +15,8 @@ const TRAY_ID: &str = "main";
 /// 托盘图标 = 应用 logo + 右下角状态点(绿=有转发在跑,红=有错误/重连,None=空闲)。
 /// 纯代码叠加,不用为多状态维护多份图标资源
 fn tray_icon(dot: Option<[u8; 4]>) -> Image<'static> {
-    let img = Image::from_bytes(include_bytes!("../icons/32x32.png"))
-        .expect("内嵌托盘图标解码失败");
+    let img =
+        Image::from_bytes(include_bytes!("../icons/32x32.png")).expect("内嵌托盘图标解码失败");
     let (w, h) = (img.width(), img.height());
     let mut data = img.rgba().to_vec();
     if let Some(rgba) = dot {
