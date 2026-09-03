@@ -1,4 +1,4 @@
-//! 托盘:三态图标 + 按服务器分组的转发启停菜单。
+//! 托盘:logo 图标 + 右下角状态点,按服务器分组的转发启停菜单。
 //! 菜单构建只能同步读 tray_cache(回调上下文里不能 await);
 //! 数据由 refresh_cache 在事件任务/command 里异步刷新
 use crate::{AppState, TrayCache};
@@ -12,26 +12,41 @@ use tauri::{AppHandle, Emitter, Manager};
 
 const TRAY_ID: &str = "main";
 
-/// 纯代码生成圆形图标(免图标资源文件):灰=无活动,绿=正常,红=有错误
-fn circle_icon(rgba: [u8; 4]) -> Image<'static> {
-    const S: u32 = 32;
-    let mut data = vec![0u8; (S * S * 4) as usize];
-    let c = S as f32 / 2.0;
-    let r = c - 2.0;
-    for y in 0..S {
-        for x in 0..S {
+/// 托盘图标 = 应用 logo + 右下角状态点(绿=有转发在跑,红=有错误/重连,None=空闲)。
+/// 纯代码叠加,不用为多状态维护多份图标资源
+fn tray_icon(dot: Option<[u8; 4]>) -> Image<'static> {
+    let img = Image::from_bytes(include_bytes!("../icons/32x32.png"))
+        .expect("内嵌托盘图标解码失败");
+    let (w, h) = (img.width(), img.height());
+    let mut data = img.rgba().to_vec();
+    if let Some(rgba) = dot {
+        draw_status_dot(&mut data, w, rgba);
+    }
+    Image::new_owned(data, w, h)
+}
+
+/// 右下角状态点:白圈描边保证在蓝色 logo 底上也清晰
+fn draw_status_dot(data: &mut [u8], size: u32, rgba: [u8; 4]) {
+    let c = size as f32 - 7.5;
+    let r_outer = 6.5;
+    let r_inner = 4.5;
+    for y in 0..size {
+        for x in 0..size {
             let dx = x as f32 - c + 0.5;
             let dy = y as f32 - c + 0.5;
-            if dx * dx + dy * dy <= r * r {
-                let i = ((y * S + x) * 4) as usize;
-                data[i..i + 4].copy_from_slice(&rgba);
+            let d2 = dx * dx + dy * dy;
+            if d2 <= r_outer * r_outer {
+                let i = ((y * size + x) * 4) as usize;
+                if d2 <= r_inner * r_inner {
+                    data[i..i + 4].copy_from_slice(&rgba);
+                } else {
+                    data[i..i + 4].copy_from_slice(&[255, 255, 255, 255]);
+                }
             }
         }
     }
-    Image::new_owned(data, S, S)
 }
 
-const GREY: [u8; 4] = [158, 158, 158, 255];
 const GREEN: [u8; 4] = [76, 175, 80, 255];
 const RED: [u8; 4] = [244, 67, 54, 255];
 
@@ -126,7 +141,7 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     builder.build()
 }
 
-/// 图标聚合规则:任一错误/重连 → 红;否则有转发在跑 → 绿;否则灰
+/// 状态点规则:任一错误/重连 → 红点;有转发在跑 → 绿点;否则纯 logo
 fn overall_icon(app: &AppHandle) -> Image<'static> {
     let state = app.state::<AppState>();
     let cache = state.tray_cache.read().unwrap();
@@ -145,14 +160,14 @@ fn overall_icon(app: &AppHandle) -> Image<'static> {
         .forwards
         .values()
         .any(|s| s.status == ForwardStatus::Running);
-    let color = if has_error {
-        RED
+    let dot = if has_error {
+        Some(RED)
     } else if has_running {
-        GREEN
+        Some(GREEN)
     } else {
-        GREY
+        None
     };
-    circle_icon(color)
+    tray_icon(dot)
 }
 
 /// 从最新缓存重建菜单 + 更新图标(同步;由事件任务与 command 在 refresh_cache 后调用)
@@ -170,7 +185,7 @@ pub fn build_tray(app: &mut tauri::App) -> tauri::Result<()> {
     let menu = build_menu(app.handle())?;
     TrayIconBuilder::with_id(TRAY_ID)
         .tooltip("SSH Tunnel")
-        .icon(circle_icon(GREY))
+        .icon(tray_icon(None))
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| {
@@ -228,4 +243,31 @@ fn toggle_forward(app: &AppHandle, forward_id: &str) {
             tracing::error!("切换转发失败: {e}");
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tray_icon_is_logo_size() {
+        let img = tray_icon(None);
+        assert_eq!((img.width(), img.height()), (32, 32));
+    }
+
+    #[test]
+    fn status_dot_overlay() {
+        let img = tray_icon(Some(GREEN));
+        let data = img.rgba();
+        let px = |x: u32, y: u32| {
+            let i = ((y * 32 + x) * 4) as usize;
+            &data[i..i + 4]
+        };
+        // 圆心(右下角)是状态色
+        assert_eq!(px(25, 25), &GREEN);
+        // 外圈描边是白色(距圆心 6px,在外圈与内圈之间)
+        assert_eq!(px(30, 24), &[255, 255, 255, 255]);
+        // 无状态点时图标保持 logo 原样(逐字节一致)
+        assert_eq!(tray_icon(None).rgba(), tray_icon(None).rgba());
+    }
 }
