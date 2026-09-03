@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { Delete, Edit, Guide, Plus } from '@element-plus/icons-vue'
 import { useServersStore } from '../stores/servers'
 import { useForwardsStore } from '../stores/forwards'
 import ServerEditorDialog from '../components/ServerEditorDialog.vue'
@@ -31,6 +32,15 @@ const FORWARD_KIND_TEXT: Record<string, string> = { local: '本地', remote: '�
 
 function statusText(s?: string) {
   return SERVER_STATUS_TEXT[s ?? ''] ?? '未连接'
+}
+// 状态点颜色分级:绿=正常,黄=进行中/重连,红=错误,灰=未连接
+function statusDotClass(s?: string) {
+  switch (s) {
+    case 'connected': case 'running': return 'ok'
+    case 'connecting': case 'reconnecting': case 'starting': return 'pending'
+    case 'error': return 'bad'
+    default: return 'idle'
+  }
 }
 // 连接/断开按钮的可见性:状态来源与 SERVER_STATUS_TEXT 同为 serverStatus。
 // 重连中两个都显示——「连接」等于立即重试,「断开」等于放弃重连
@@ -75,77 +85,103 @@ defineExpose({
 
 <template>
   <div class="main-view">
-    <aside class="server-list">
-      <div class="list-header">
-        <span>服务器</span>
-        <el-button size="small" type="primary" @click="editingServer = null; serverDialog = true">添加</el-button>
+    <aside class="panel server-list">
+      <div class="panel-header">
+        <span class="panel-title">服务器</span>
+        <el-button size="small" type="primary" :icon="Plus"
+          @click="editingServer = null; serverDialog = true">添加</el-button>
       </div>
-      <div v-for="s in servers.servers" :key="s.id"
-        :class="['server-item', { active: s.id === servers.selectedId }]" @click="servers.select(s.id)">
-        <div class="server-name">{{ s.name }}</div>
-        <div class="server-sub">{{ s.username }}@{{ s.host }}:{{ s.port }}</div>
-        <el-tooltip :content="servers.serverStatus[s.id]?.error ?? ''"
-          :disabled="!servers.serverStatus[s.id]?.error">
-          <div class="server-status" :class="servers.serverStatus[s.id]?.status">
-            {{ statusText(servers.serverStatus[s.id]?.status) }}
-          </div>
-        </el-tooltip>
-        <div class="server-actions">
-          <el-button v-if="canConnect(s.id)" size="small" text type="primary"
-            @click.stop="servers.connect(s.id)">连接</el-button>
-          <el-button v-if="canDisconnect(s.id)" size="small" text
-            @click.stop="servers.disconnect(s.id)">断开</el-button>
-          <el-button size="small" text @click.stop="editingServer = s; serverDialog = true">编辑</el-button>
-          <el-popconfirm title="删除该服务器及其全部转发?" @confirm="servers.remove(s.id)">
-            <template #reference><el-button size="small" text type="danger" @click.stop>删除</el-button></template>
-          </el-popconfirm>
-        </div>
-      </div>
-      <el-empty v-if="servers.servers.length === 0" description="还没有服务器,点击「添加」" :image-size="80" />
-    </aside>
-
-    <section class="forward-panel">
-      <div class="list-header">
-        <span>端口转发</span>
-        <el-button size="small" type="primary" :disabled="!servers.selectedId"
-          @click="editingForward = blankForward(); forwardDialog = true">添加转发</el-button>
-      </div>
-      <el-table :data="currentForwards" style="width: 100%">
-        <el-table-column prop="name" label="名称" min-width="110" />
-        <el-table-column label="类型" width="90">
-          <template #default="{ row }">{{ forwardKindText(row.kind) }}</template>
-        </el-table-column>
-        <el-table-column label="监听" width="130">
-          <template #default="{ row }">{{ row.bind_addr }}:{{ row.bind_port }}</template>
-        </el-table-column>
-        <el-table-column label="目标" min-width="140">
-          <template #default="{ row }">
-            <span v-if="row.kind !== 'dynamic'">{{ row.target_host }}:{{ row.target_port }}</span>
-            <span v-else>—</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="状态" width="160">
-          <template #default="{ row }">
-            <el-tooltip :content="forwards.forwardStatus[row.id]?.error ?? ''"
-              :disabled="!forwards.forwardStatus[row.id]?.error">
-              <span :class="['fwd-status', forwards.forwardStatus[row.id]?.status]">
-                {{ forwardStatusText(forwards.forwardStatus[row.id]?.status) }}
+      <div class="server-items">
+        <div v-for="s in servers.servers" :key="s.id"
+          :class="['server-item', { active: s.id === servers.selectedId }]" @click="servers.select(s.id)">
+          <div class="server-top">
+            <span class="server-name">{{ s.name }}</span>
+            <el-tooltip :content="servers.serverStatus[s.id]?.error ?? ''"
+              :disabled="!servers.serverStatus[s.id]?.error">
+              <span class="status-line">
+                <span class="status-dot" :class="statusDotClass(servers.serverStatus[s.id]?.status)" />
+                <span class="status-text">{{ statusText(servers.serverStatus[s.id]?.status) }}</span>
               </span>
             </el-tooltip>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="190">
-          <template #default="{ row }">
-            <el-switch
-              :model-value="['running', 'starting'].includes(forwards.forwardStatus[row.id]?.status ?? '')"
-              @change="forwards.toggle(row.id)" />
-            <el-button size="small" text @click="editingForward = { ...row }; forwardDialog = true">编辑</el-button>
-            <el-popconfirm title="删除该转发?" @confirm="forwards.remove(row.id)">
-              <template #reference><el-button size="small" text type="danger">删除</el-button></template>
+          </div>
+          <div class="server-sub">{{ s.username }}@{{ s.host }}:{{ s.port }}</div>
+          <div class="server-actions">
+            <el-button v-if="canConnect(s.id)" size="small" text type="primary"
+              @click.stop="servers.connect(s.id)">连接</el-button>
+            <el-button v-if="canDisconnect(s.id)" size="small" text
+              @click.stop="servers.disconnect(s.id)">断开</el-button>
+            <el-button size="small" text :icon="Edit"
+              @click.stop="editingServer = s; serverDialog = true" aria-label="编辑服务器" />
+            <el-popconfirm title="删除该服务器及其全部转发?" @confirm="servers.remove(s.id)">
+              <template #reference>
+                <el-button size="small" text type="danger" :icon="Delete" @click.stop aria-label="删除服务器" />
+              </template>
             </el-popconfirm>
-          </template>
-        </el-table-column>
-      </el-table>
+          </div>
+        </div>
+        <el-empty v-if="servers.servers.length === 0" description="还没有服务器" :image-size="80">
+          <el-button type="primary" :icon="Plus" @click="editingServer = null; serverDialog = true">
+            添加服务器
+          </el-button>
+        </el-empty>
+      </div>
+    </aside>
+
+    <section class="panel forward-panel">
+      <div class="panel-header">
+        <span class="panel-title">端口转发</span>
+        <el-button size="small" type="primary" :icon="Plus" :disabled="!servers.selectedId"
+          @click="editingForward = blankForward(); forwardDialog = true">添加转发</el-button>
+      </div>
+      <template v-if="servers.selectedId">
+        <el-table :data="currentForwards" style="width: 100%">
+          <el-table-column prop="name" label="名称" min-width="110" />
+          <el-table-column label="类型" width="90">
+            <template #default="{ row }">{{ forwardKindText(row.kind) }}</template>
+          </el-table-column>
+          <el-table-column label="监听" width="140">
+            <template #default="{ row }">
+              <span class="mono">{{ row.bind_addr }}:{{ row.bind_port }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="目标" min-width="140">
+            <template #default="{ row }">
+              <span v-if="row.kind !== 'dynamic'" class="mono">{{ row.target_host }}:{{ row.target_port }}</span>
+              <span v-else>—</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="状态" width="140">
+            <template #default="{ row }">
+              <el-tooltip :content="forwards.forwardStatus[row.id]?.error ?? ''"
+                :disabled="!forwards.forwardStatus[row.id]?.error">
+                <span class="status-line">
+                  <span class="status-dot" :class="statusDotClass(forwards.forwardStatus[row.id]?.status)" />
+                  <span class="status-text">{{ forwardStatusText(forwards.forwardStatus[row.id]?.status) }}</span>
+                </span>
+              </el-tooltip>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="180">
+            <template #default="{ row }">
+              <el-switch
+                :model-value="['running', 'starting'].includes(forwards.forwardStatus[row.id]?.status ?? '')"
+                @change="forwards.toggle(row.id)" />
+              <el-button size="small" text :icon="Edit"
+                @click="editingForward = { ...row }; forwardDialog = true" aria-label="编辑转发" />
+              <el-popconfirm title="删除该转发?" @confirm="forwards.remove(row.id)">
+                <template #reference>
+                  <el-button size="small" text type="danger" :icon="Delete" aria-label="删除转发" />
+                </template>
+              </el-popconfirm>
+            </template>
+          </el-table-column>
+        </el-table>
+      </template>
+      <el-empty v-else description="先在左侧选择一台服务器" :image-size="100">
+        <template #image>
+          <el-icon :size="48" class="guide-icon"><Guide /></el-icon>
+        </template>
+      </el-empty>
     </section>
 
     <ServerEditorDialog v-model="serverDialog" :server="editingServer" @submit="saveServer" />
@@ -154,17 +190,105 @@ defineExpose({
 </template>
 
 <style scoped>
-.main-view { display: flex; height: 100%; }
-.server-list { width: 240px; border-right: 1px solid #e4e7ed; overflow: auto; padding: 8px; }
-.list-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-weight: 600; }
-.server-item { padding: 8px; border-radius: 6px; cursor: pointer; margin-bottom: 4px; }
-.server-item.active { background: #ecf5ff; }
-.server-name { font-weight: 600; }
-.server-sub { font-size: 12px; color: #909399; }
-.server-status { font-size: 12px; color: #909399; }
-.server-status.connected { color: #67c23a; }
-.server-status.error, .server-status.reconnecting { color: #f56c6c; }
-.forward-panel { flex: 1; padding: 8px 16px; overflow: auto; }
-.fwd-status.running { color: #67c23a; }
-.fwd-status.error { color: #f56c6c; }
+.main-view {
+  display: flex;
+  gap: 16px;
+  height: 100%;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+/* 面板卡片:浅色下白底浮于灰页底,深色下实心面板色 */
+.panel {
+  background: var(--app-panel-bg);
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  box-shadow: var(--app-panel-shadow);
+  padding: 16px;
+  overflow: auto;
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.panel-title { font-weight: 600; font-size: 15px; }
+
+.server-list { width: 264px; flex-shrink: 0; }
+.forward-panel { flex: 1; min-width: 0; }
+
+.server-item {
+  position: relative;
+  padding: 10px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  margin-bottom: 6px;
+  transition: background-color 160ms ease;
+}
+.server-item:hover { background: var(--app-hover-bg); }
+.server-item.active { background: var(--app-active-bg); }
+/* 选中指示:左侧主色竖条 */
+.server-item.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 20%;
+  bottom: 20%;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--el-color-primary);
+}
+
+.server-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.server-name { font-weight: 600; font-size: 14px; }
+.server-sub {
+  font-size: 12px;
+  color: var(--app-text-secondary);
+  font-family: var(--app-font-mono);
+  margin-top: 2px;
+}
+
+/* 状态点:颜色分级 + 进行中脉冲 */
+.status-line { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--app-text-secondary);
+}
+.status-dot.ok { background: var(--app-success); }
+.status-dot.bad { background: var(--app-danger); }
+.status-dot.pending {
+  background: var(--app-warning);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+.status-text { font-size: 12px; color: var(--app-text-secondary); }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+/* 操作按钮平时隐藏,hover/选中时浮现,减少视觉噪音 */
+.server-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 6px;
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+.server-item:hover .server-actions,
+.server-item.active .server-actions { opacity: 1; }
+.server-actions .el-button + .el-button { margin-left: 0; }
+
+.mono { font-family: var(--app-font-mono); font-size: 12px; }
+.guide-icon { color: var(--app-text-secondary); }
 </style>

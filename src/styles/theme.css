@@ -1,0 +1,116 @@
+/* 设计 token 层：浅色为默认，深色挂 html.dark（配合 element-plus 暗色变量）
+   不引 Google Fonts——桌面应用需离线可用，统一走系统字体栈 */
+
+:root {
+  /* 应用级 token */
+  --app-bg: #f5f7fa;
+  --app-panel-bg: #ffffff;
+  --app-border: #e5e7eb;
+  --app-text: #1f2937;
+  --app-text-secondary: #6b7280;
+  --app-hover-bg: #f3f4f6;
+  --app-active-bg: #eff6ff;
+  --app-panel-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+
+  /* 状态色 */
+  --app-success: #16a34a;
+  --app-warning: #d97706;
+  --app-danger: #dc2626;
+
+  /* 字体栈 */
+  --app-font-sans: "Inter", -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --app-font-mono: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
+
+  /* Element Plus 变量覆盖 */
+  --el-color-primary: #2563eb;
+  --el-color-primary-light-3: #5b8ef0;
+  --el-color-primary-light-5: #91b3f5;
+  --el-color-primary-light-7: #c0d4fa;
+  --el-color-primary-light-8: #d8e4fc;
+  --el-color-primary-light-9: #eff6ff;
+  --el-color-primary-dark-2: #1e4fbc;
+  --el-color-success: #16a34a;
+  --el-color-warning: #d97706;
+  --el-color-danger: #dc2626;
+  --el-color-error: #dc2626;
+  --el-border-radius-base: 8px;
+  --el-border-radius-small: 6px;
+  --el-dialog-border-radius: 10px;
+  --el-font-family: var(--app-font-sans);
+
+  color-scheme: light;
+}
+
+html.dark {
+  --app-bg: #0f172a;
+  --app-panel-bg: #1e293b;
+  --app-border: #334155;
+  --app-text: #f1f5f9;
+  --app-text-secondary: #94a3b8;
+  --app-hover-bg: #273549;
+  --app-active-bg: #1d3a5f;
+  --app-panel-shadow: none;
+
+  --app-success: #22c55e;
+  --app-warning: #f59e0b;
+  --app-danger: #ef4444;
+
+  --el-color-primary: #3b82f6;
+  --el-color-primary-light-3: #62a1f8;
+  --el-color-primary-light-5: #1d3a5f;
+  --el-color-primary-light-7: #173052;
+  --el-color-primary-light-8: #122845;
+  --el-color-primary-light-9: #0e2140;
+  --el-color-primary-dark-2: #6ca8f8;
+  --el-color-success: #22c55e;
+  --el-color-warning: #f59e0b;
+  --el-color-danger: #ef4444;
+  --el-color-error: #ef4444;
+
+  /* EP 暗色默认底色是纯黑系(#141414)，与 slate 面板冲突，整体对齐到 slate 色阶 */
+  --el-bg-color: #1e293b;
+  --el-bg-color-overlay: #27374f;
+  --el-text-color-primary: #f1f5f9;
+  --el-text-color-regular: #cbd5e1;
+  --el-text-color-secondary: #94a3b8;
+  --el-text-color-placeholder: #64748b;
+  --el-border-color: #334155;
+  --el-border-color-light: #334155;
+  --el-border-color-lighter: #2c3a4f;
+  --el-border-color-extra-light: #273549;
+  --el-fill-color: #334155;
+  --el-fill-color-light: #2b3b52;
+  --el-fill-color-lighter: #273549;
+  --el-fill-color-extra-light: #223047;
+  --el-fill-color-dark: #3b4c66;
+  --el-mask-color: rgba(0, 0, 0, 0.6);
+  /* 表格背景走 --el-fill-color-blank（EP 在 .el-table 作用域内引用它，须在此覆盖） */
+  --el-fill-color-blank: #1e293b;
+
+  color-scheme: dark;
+}
+
+html, body, #app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--app-font-sans);
+  color: var(--app-text);
+  background: var(--app-bg);
+  /* 主题切换时的底色/文字色过渡，避免生硬闪变 */
+  transition: background-color 200ms ease, color 200ms ease;
+}
+
+/* 微交互统一时长；可点击元素必须有指针光标 */
+button, [role="button"], .clickable {
+  cursor: pointer;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

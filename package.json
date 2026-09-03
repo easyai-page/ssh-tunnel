@@ -1,7 +1,7 @@
 {
   "name": "ssh-tunnel",
   "private": true,
-  "version": "0.1.4",
+  "version": "0.1.5",
   "packageManager": "pnpm@10.33.2",
   "type": "module",
   "scripts": {
@@ -12,6 +12,7 @@
     "tauri": "tauri"
   },
   "dependencies": {
+    "@element-plus/icons-vue": "^2.3.2",
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-autostart": "^2.5.1",
     "@tauri-apps/plugin-dialog": "^2",
