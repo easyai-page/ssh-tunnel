@@ -19,7 +19,7 @@ const currentForwards = computed(() => (servers.selectedId ? forwards.forwardsOf
 function blankForward(): Forward {
   return {
     id: '', server_id: servers.selectedId ?? '', name: '', kind: 'local',
-    bind_addr: '127.0.0.1', bind_port: 0, target_host: null, target_port: null, auto_start: false,
+    bind_addr: '127.0.0.1', bind_port: 0, target_host: '127.0.0.1', target_port: null, auto_start: false,
   }
 }
 
