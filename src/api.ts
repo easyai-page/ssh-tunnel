@@ -3,9 +3,16 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { ElMessage } from 'element-plus'
+import { mockApi, mockListen } from './api.mock'
 import type {
   Forward, HostKeyPrompt, LogEntry, Server, Settings, StatusSnapshot, TunnelEvent, UpsertServerInput,
 } from './types'
+
+// 浏览器环境(无 Tauri 运行时,如 vite 独立调试/README 截图)回落到演示 mock;
+// 测试环境例外:invoke/listen 已被 vi.mock 接管,必须走真实调用路径
+const isTauri =
+  (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) ||
+  import.meta.env.MODE === 'test'
 
 // 所有 command 调用经此封装：invoke 失败时弹出用户可读的错误提示
 // (Rust 侧错误串本身就是面向用户的文案)，再原样抛出,
@@ -19,7 +26,7 @@ async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> 
   }
 }
 
-export const api = {
+const tauriApi = {
   listServers: () => call<Server[]>('list_servers'),
   upsertServer: (input: UpsertServerInput) => call<Server>('upsert_server', { input }),
   deleteServer: (id: string) => call<void>('delete_server', { id }),
@@ -38,11 +45,15 @@ export const api = {
     call<void>('respond_host_key', { promptId, trust }),
 }
 
+export const api = isTauri ? tauriApi : mockApi
+
 export const onTunnelEvent = (cb: (ev: TunnelEvent) => void) =>
-  listen<TunnelEvent>('tunnel-event', (e) => cb(e.payload))
+  isTauri ? listen<TunnelEvent>('tunnel-event', (e) => cb(e.payload)) : mockListen<TunnelEvent>('tunnel-event', (e) => cb(e.payload))
 export const onLog = (cb: (entry: LogEntry) => void) =>
-  listen<LogEntry>('log', (e) => cb(e.payload))
+  isTauri ? listen<LogEntry>('log', (e) => cb(e.payload)) : mockListen<LogEntry>('log', (e) => cb(e.payload))
 export const onHostKeyPrompt = (cb: (p: HostKeyPrompt) => void) =>
-  listen<HostKeyPrompt>('host-key-prompt', (e) => cb(e.payload))
+  isTauri ? listen<HostKeyPrompt>('host-key-prompt', (e) => cb(e.payload)) : mockListen<HostKeyPrompt>('host-key-prompt', (e) => cb(e.payload))
 export const onNavigate = (cb: (nav: { view: string; server_id?: string }) => void) =>
-  listen<{ view: string; server_id?: string }>('navigate', (e) => cb(e.payload))
+  isTauri
+    ? listen<{ view: string; server_id?: string }>('navigate', (e) => cb(e.payload))
+    : mockListen<{ view: string; server_id?: string }>('navigate', (e) => cb(e.payload))
